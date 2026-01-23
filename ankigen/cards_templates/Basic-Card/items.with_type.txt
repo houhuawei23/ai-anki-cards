@@ -1,0 +1,8 @@
+#separator:tab
+#html:true
+#columns:GUID	Notetype	Front	Back	Tags
+#guid column:1
+#notetype column:2
+#tags column:5
+1	Basic Card	什么是Python？	Python是一种高级编程语言	python
+3	Basic Card	aa	bb	test

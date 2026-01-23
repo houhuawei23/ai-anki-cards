@@ -1,0 +1,6 @@
+#separator:tab
+#html:true
+#columns:GUID	Text	Tags
+#guid column:1
+#tags column:3
+132131	Python是一种{{c1::高级编程语言}}，由{{c2::Guido van Rossum}}在1991年发布。	python

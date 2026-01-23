@@ -1,0 +1,19 @@
+Name: MCQ Card
+Description: MCQ Card 模板
+Fields:
+  - Question
+  - OptionA
+  - OptionB
+  - OptionC
+  - OptionD
+  - OptionE
+  - OptionF
+  - Answer
+  - Note
+  - NoteA
+  - NoteB
+  - NoteC
+  - NoteD
+  - NoteE
+  - NoteF
+  - Tags

@@ -1,0 +1,33 @@
+# AnkiGen 默认配置文件
+
+llm:
+  provider: deepseek
+  model_name: deepseek-chat
+  api_key: ${DEEPSEEK_API_KEY}
+  base_url: https://api.deepseek.com
+  temperature: 0.7
+  max_tokens: 2000
+  top_p: 1.0
+  presence_penalty: 0.0
+  frequency_penalty: 0.0
+  timeout: 60
+  max_retries: 3
+  api_keys: []
+
+generation:
+  default_card_type: basic
+  card_count: 10
+  difficulty: medium
+  chunk_size: 500
+  max_tokens_per_chunk: 1000
+  custom_prompt: null
+  enable_deduplication: false
+  enable_quality_filter: false
+  max_cards_per_request: 20
+  max_concurrent_requests: 5
+
+export:
+  default_format: apkg
+  deck_name: "Generated Deck"
+  deck_description: ""
+  include_media: false

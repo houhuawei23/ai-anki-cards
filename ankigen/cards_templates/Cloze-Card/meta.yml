@@ -1,0 +1,5 @@
+Name: Cloze Card
+Description: Cloze Card 模板
+Fields:
+  - Text
+  - Tags

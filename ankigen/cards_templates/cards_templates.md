@@ -1,0 +1,7 @@
+- front.html: 正面模板
+- back.html: 背面模板
+- meta.yml: 模板元信息
+- styling.css: 卡片样式
+- items.yml: 示例卡片组（yaml格式）
+- items.txt: 卡片组（纯文本格式，可直接导入Anki）
+- items.with_type.txt: 卡片组（纯文本格式，包含卡片类型，可直接导入Anki）

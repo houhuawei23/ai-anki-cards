@@ -1,0 +1,21 @@
+# 模型信息配置文件
+# 用于自适应资源估算和内容切分策略
+
+models:
+  deepseek-chat:
+    provider: deepseek
+    context_length: 128000
+    max_output:
+      default: 4000
+      maximum: 8000
+    speed_tokens_per_second: 30
+    card_metrics:
+      basic:
+        avg_time_per_card: 5.0  # 秒
+        avg_tokens_per_card: 150
+      cloze:
+        avg_time_per_card: 5.0  # 秒
+        avg_tokens_per_card: 150
+      mcq:
+        avg_time_per_card: 15.0  # 秒
+        avg_tokens_per_card: 500

@@ -1,0 +1,11 @@
+---
+Question: This is the stem of the question. It supports various content formats in Anki, including bold, formulas, etc.<br>[1610612768]
+OptionA: This is the content of the question options.
+OptionB: Options that are not filled in will not be displayed.
+OptionC: And various formats are also supported.
+Answer: AC
+Note: Above is the answer to the question. For multiple-choice questions, please write the uppercase letter of the correct answer, for example, A. For multiple-choice questions, write all the correct answer letters, such as ABC.
+NoteA: Note for optionA
+NoteB: Note for optionB
+NoteC: Note for optionC
+Tags: TestTag

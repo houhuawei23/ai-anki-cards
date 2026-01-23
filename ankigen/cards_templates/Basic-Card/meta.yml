@@ -1,0 +1,6 @@
+Name: Basic Card
+Description: Basic Card 模板
+Fields:
+  - Front
+  - Back
+  - Tags
