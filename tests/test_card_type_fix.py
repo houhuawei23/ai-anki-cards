@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ankigen.core.exporter import _add_type_count_suffix, _get_card_type_value, export_cards
+from ankigen.core.exporter import _add_type_count_suffix, export_cards
+from ankigen.core.exporter_utils import get_card_type_string
 from ankigen.models.card import BasicCard, CardType, MCQCard
 
 
@@ -15,15 +16,15 @@ class TestCardTypeValue:
 
     def test_get_card_type_value_enum(self):
         """测试从枚举获取值"""
-        assert _get_card_type_value(CardType.BASIC) == "basic"
-        assert _get_card_type_value(CardType.CLOZE) == "cloze"
-        assert _get_card_type_value(CardType.MCQ) == "mcq"
+        assert get_card_type_string(CardType.BASIC) == "basic"
+        assert get_card_type_string(CardType.CLOZE) == "cloze"
+        assert get_card_type_string(CardType.MCQ) == "mcq"
 
     def test_get_card_type_value_string(self):
         """测试从字符串获取值"""
-        assert _get_card_type_value("basic") == "basic"
-        assert _get_card_type_value("cloze") == "cloze"
-        assert _get_card_type_value("mcq") == "mcq"
+        assert get_card_type_string("basic") == "basic"
+        assert get_card_type_string("cloze") == "cloze"
+        assert get_card_type_string("mcq") == "mcq"
 
     def test_add_type_count_suffix_with_enum(self, tmp_path):
         """测试添加类型后缀（枚举类型）"""

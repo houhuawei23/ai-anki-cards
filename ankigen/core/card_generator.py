@@ -5,8 +5,6 @@
 """
 
 import asyncio
-import json
-import re
 import sys
 import time
 from pathlib import Path
@@ -16,19 +14,17 @@ from typing import List, Optional
 from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
 
-from ankigen.core.config_loader import load_model_info
-from ankigen.core.llm_engine import LLMEngine
-from ankigen.core.template_loader import get_template_dir
+from ankigen.core.card_deduplicator import CardDeduplicator
+from ankigen.core.card_factory import CardFactory
+from ankigen.core.card_filter import CardFilter
+from ankigen.core.content_chunker import ContentChunker
 from ankigen.core.estimator import create_estimator_from_config
+from ankigen.core.llm_engine import LLMEngine
+from ankigen.core.response_parser import ResponseParser
+from ankigen.core.stats_display import StatsDisplay
 from ankigen.core.tags_loader import load_tags_file
-from ankigen.models.card import (
-    BasicCard,
-    Card,
-    CardType,
-    ClozeCard,
-    MCQCard,
-    MCQOption,
-)
+from ankigen.core.template_loader import get_template_dir
+from ankigen.models.card import Card, CardType
 from ankigen.models.config import GenerationConfig, LLMConfig
 from ankigen.utils.cache import FileCache
 
@@ -170,6 +166,14 @@ class CardGenerator:
         self.estimator = create_estimator_from_config(llm_config)
         # 用于保护 stdout 写入的锁（避免并发输出混乱）
         self._stdout_lock = asyncio.Lock()
+        
+        # 初始化各个组件
+        self.response_parser = ResponseParser()
+        self.card_factory = CardFactory()
+        self.card_filter = CardFilter()
+        self.card_deduplicator = CardDeduplicator()
+        self.content_chunker = ContentChunker()
+        self.stats_display = StatsDisplay(llm_config)
 
     async def generate_cards(
         self,
@@ -247,7 +251,7 @@ class CardGenerator:
             )
 
             # 切分内容（使用策略中的cards_per_chunk）
-            content_chunks = self._chunk_content_for_cards(
+            content_chunks = self.content_chunker.chunk_for_cards(
                 content, target_card_count, strategy.cards_per_chunk
             )
             logger.info(f"内容已切分为 {len(content_chunks)} 个块")
@@ -326,7 +330,7 @@ class CardGenerator:
 
             # 最终去重（跨块去重）
             if config.enable_deduplication:
-                all_cards = self._deduplicate_cards(all_cards)
+                all_cards = self.card_deduplicator.deduplicate(all_cards)
 
             logger.info(
                 f"成功生成 {len(all_cards)} 张卡片（并发执行 {len(tasks)} 个任务）"
@@ -344,7 +348,7 @@ class CardGenerator:
                 self.cache.set(cache_key, (all_cards, cached_stats), prefix="cards")
 
             # 显示统计信息
-            self._display_stats(total_stats, len(all_cards))
+            self.stats_display.display(total_stats, len(all_cards))
 
             return all_cards, total_stats
         else:
@@ -369,7 +373,7 @@ class CardGenerator:
                 self.cache.set(cache_key, (cards, cached_stats), prefix="cards")
             
             # 显示统计信息
-            self._display_stats(stats, len(cards))
+            self.stats_display.display(stats, len(cards))
             return cards, stats
 
     async def _generate_cards_single(
@@ -515,7 +519,7 @@ class CardGenerator:
         # 解析响应（加强错误处理）
         cards = []
         try:
-            cards = self._parse_response(response, config.card_type)
+            cards = self.response_parser.parse_response(response, config.card_type, self.card_factory)
         except Exception as e:
             logger.error(f"解析响应失败: {e}")
             logger.error(f"响应内容预览: {response[:500]}")
@@ -527,7 +531,7 @@ class CardGenerator:
         try:
             if config.enable_quality_filter:
                 original_count = len(cards)
-                cards = self._filter_cards(cards, config.card_type)
+                cards = self.card_filter.filter_cards(cards, config.card_type)
                 if len(cards) < original_count:
                     logger.info(f"质量过滤: {original_count} -> {len(cards)} 张卡片")
         except Exception as e:
@@ -539,7 +543,7 @@ class CardGenerator:
         try:
             if config.enable_deduplication:
                 original_count = len(cards)
-                cards = self._deduplicate_cards(cards)
+                cards = self.card_deduplicator.deduplicate(cards)
                 if len(cards) < original_count:
                     logger.info(f"去重: {original_count} -> {len(cards)} 张卡片")
         except Exception as e:
@@ -559,388 +563,6 @@ class CardGenerator:
             logger.info(f"成功生成 {len(cards)} 张卡片")
         
         return cards, stats
-
-    def _load_pricing_config(self) -> Optional[dict]:
-        """
-        从 model_info.yml 加载 pricing_per_million_tokens 配置
-        
-        Returns:
-            包含 input, input_cache_hit, output 键的字典，如果未找到则返回 None
-        """
-        try:
-            model_info_dict = load_model_info()
-            if model_info_dict:
-                models = model_info_dict.get("models", {})
-                # 根据配置中的 model_name 查找对应的模型信息
-                model_name = self.llm_config.model_name
-                if model_name in models:
-                    model_data = models[model_name]
-                    pricing_config = model_data.get("pricing_per_million_tokens", {})
-                    if pricing_config:
-                        return {
-                            "input": pricing_config.get("input", 2.0),
-                            "input_cache_hit": pricing_config.get("input_cache_hit", 0.2),
-                            "output": pricing_config.get("output", 3.0),
-                        }
-        except Exception as e:
-            logger.debug(f"加载 pricing_per_million_tokens 配置失败: {e}")
-        return None
-
-    def _calculate_cost(self, stats: GenerationStats) -> Optional[float]:
-        """
-        计算 API 调用花费（人民币）
-        
-        Args:
-            stats: 统计信息
-            
-        Returns:
-            花费金额（人民币），如果配置不存在则返回 None
-        """
-        pricing_config = self._load_pricing_config()
-        if not pricing_config:
-            return None
-        
-        # 计算输入 token 花费（区分 cache hit 和 cache miss）
-        input_cache_miss_tokens = stats.input_cache_miss_tokens
-        input_cache_hit_tokens = stats.input_cache_hit_tokens
-        
-        input_cost = (
-            input_cache_miss_tokens / 1_000_000 * pricing_config["input"] +
-            input_cache_hit_tokens / 1_000_000 * pricing_config["input_cache_hit"]
-        )
-        
-        # 计算输出 token 花费
-        output_cost = stats.output_tokens / 1_000_000 * pricing_config["output"]
-        
-        total_cost = input_cost + output_cost
-        return total_cost
-
-    def _display_stats(self, stats: GenerationStats, card_count: int) -> None:
-        """
-        显示生成统计信息
-
-        Args:
-            stats: 统计信息
-            card_count: 生成的卡片数量
-        """
-        if card_count == 0:
-            return
-        
-        logger.info("=" * 60)
-        logger.info("生成统计信息:")
-        logger.info(f"  输入 Token 数: {stats.input_tokens:,}")
-        if stats.input_cache_hit_tokens > 0:
-            logger.info(f"    - Cache Hit: {stats.input_cache_hit_tokens:,}")
-            logger.info(f"    - Cache Miss: {stats.input_cache_miss_tokens:,}")
-        logger.info(f"  输出 Token 数: {stats.output_tokens:,}")
-        logger.info(f"  总 Token 数: {stats.total_tokens:,}")
-        logger.info(f"  总用时: {stats.total_time:.2f} 秒")
-        logger.info(f"  平均每 Token 用时: {stats.avg_time_per_token * 1000:.2f} 毫秒")
-        logger.info(f"  生成速度: {stats.tokens_per_second:.2f} tokens/秒")
-        logger.info(f"  每张卡片平均 Token: {stats.output_tokens / card_count:.1f}")
-        logger.info(f"  每张卡片平均用时: {stats.total_time / card_count:.2f} 秒")
-        
-        # 计算并显示花费
-        cost = self._calculate_cost(stats)
-        if cost is not None:
-            logger.info(f"  预估花费: ¥{cost:.4f}")
-            logger.info(f"  每张卡片平均花费: ¥{cost / card_count:.4f}")
-        else:
-            logger.debug("  未找到定价配置，跳过花费计算")
-        
-        logger.info("=" * 60)
-
-    def _parse_response(self, response: str, card_type: str) -> List[Card]:
-        """
-        解析LLM响应
-
-        Args:
-            response: LLM响应文本
-            card_type: 卡片类型
-
-        Returns:
-            卡片列表
-        """
-        cards = []
-
-        # 尝试提取JSON
-        json_str = None
-        
-        # 方法1: 提取代码块中的JSON
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            # 方法2: 提取代码块中的JSON（无语言标识）
-            json_match = re.search(r"```\s*(\{.*\"cards\".*?\})\s*```", response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                # 方法3: 尝试找到完整的JSON对象（从第一个{到匹配的}）
-                # 使用栈来匹配括号
-                start_idx = response.find('{"cards"')
-                if start_idx == -1:
-                    start_idx = response.find('{\"cards\"')
-                if start_idx != -1:
-                    brace_count = 0
-                    for i in range(start_idx, len(response)):
-                        if response[i] == '{':
-                            brace_count += 1
-                        elif response[i] == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                json_str = response[start_idx:i+1]
-                                break
-                
-                if not json_str:
-                    # 方法4: 尝试直接解析整个响应
-                    json_str = response.strip()
-
-        if not json_str:
-            logger.warning("无法从响应中提取JSON")
-            return cards
-
-        try:
-            # 清理可能的markdown格式
-            json_str = json_str.strip()
-            if json_str.startswith("```"):
-                json_str = re.sub(r"^```(?:json)?\s*", "", json_str)
-                json_str = re.sub(r"\s*```$", "", json_str)
-            
-            data = json.loads(json_str)
-            cards_data = data.get("cards", [])
-
-            for card_data in cards_data:
-                try:
-                    card = self._create_card_from_data(card_data, card_type)
-                    if card:
-                        cards.append(card)
-                except Exception as e:
-                    logger.warning(f"解析卡片失败: {e}, 数据: {card_data}")
-
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {e}")
-            logger.debug(f"响应内容: {response[:500]}")
-            # 尝试修复常见的JSON问题
-            try:
-                # 尝试修复尾随逗号
-                json_str_fixed = re.sub(r',\s*}', '}', json_str)
-                json_str_fixed = re.sub(r',\s*]', ']', json_str_fixed)
-                data = json.loads(json_str_fixed)
-                cards_data = data.get("cards", [])
-                for card_data in cards_data:
-                    try:
-                        card = self._create_card_from_data(card_data, card_type)
-                        if card:
-                            cards.append(card)
-                    except Exception as e2:
-                        logger.warning(f"解析卡片失败: {e2}, 数据: {card_data}")
-            except Exception:
-                pass
-
-        return cards
-
-    def _create_card_from_data(
-        self, card_data: dict, card_type: str
-    ) -> Optional[Card]:
-        """
-        从数据字典创建卡片对象
-        
-        支持从模板字段名称（如 "Front", "Back", "Text", "Tags"）映射到Card对象字段
-
-        Args:
-            card_data: 卡片数据字典（可能包含模板字段名称）
-            card_type: 卡片类型
-
-        Returns:
-            卡片对象
-        """
-        card_type_enum = CardType(card_type)
-
-        if card_type_enum == CardType.BASIC:
-            # 支持 "Front"/"front" 和 "Back"/"back" 字段
-            front = card_data.get("Front") or card_data.get("front", "")
-            back = card_data.get("Back") or card_data.get("back", "")
-            # 将换行符替换为 HTML <br>
-            front = front.replace("\n", "<br>") if front else ""
-            back = back.replace("\n", "<br>") if back else ""
-            # 支持 "Tags"/"tags" 字段
-            tags = card_data.get("Tags") or card_data.get("tags", [])
-            
-            return BasicCard(
-                front=front,
-                back=back,
-                tags=tags if isinstance(tags, list) else [],
-                metadata=card_data.get("metadata", {}),
-            )
-
-        elif card_type_enum == CardType.CLOZE:
-            # Cloze卡片使用 "Text" 字段
-            text = card_data.get("Text") or card_data.get("text") or card_data.get("front", "")
-            # 将换行符替换为 HTML <br>
-            text = text.replace("\n", "<br>") if text else ""
-            # 验证是否包含cloze标记
-            if "{{c" not in text:
-                logger.warning("Cloze卡片缺少填空标记")
-                return None
-
-            # 支持 "Tags"/"tags" 字段
-            tags = card_data.get("Tags") or card_data.get("tags", [])
-
-            return ClozeCard(
-                front=text,
-                back=text,  # Cloze卡片back通常与front相同
-                tags=tags if isinstance(tags, list) else [],
-                metadata=card_data.get("metadata", {}),
-            )
-
-        elif card_type_enum == CardType.MCQ:
-            # MCQ卡片使用 "Question" 或 "Front" 字段
-            front = card_data.get("Question") or card_data.get("Front") or card_data.get("front", "")
-            # 将换行符替换为 HTML <br>
-            front = front.replace("\n", "<br>") if front else ""
-            
-            # 支持新的格式：OptionA-F 字段
-            options = []
-            option_letters = ["A", "B", "C", "D", "E", "F"]
-            
-            # 首先尝试新格式（OptionA-F）
-            has_new_format = False
-            for letter in option_letters:
-                option_key = f"Option{letter}"
-                option_value = card_data.get(option_key, "").strip()
-                if option_value:
-                    has_new_format = True
-                    # 将换行符替换为 HTML <br>
-                    option_value = option_value.replace("\n", "<br>")
-                    # 从 Answer 字段判断是否正确
-                    answer = card_data.get("Answer", "").strip().upper()
-                    is_correct = letter in answer
-                    options.append(MCQOption(text=option_value, is_correct=is_correct))
-            
-            # 如果没有新格式，尝试 Options 数组格式
-            if not has_new_format:
-                options_data = card_data.get("Options") or card_data.get("options", [])
-                if options_data:
-                    for opt_data in options_data:
-                        if isinstance(opt_data, dict):
-                            opt_text = opt_data.get("text", "")
-                            # 将换行符替换为 HTML <br>
-                            opt_text = opt_text.replace("\n", "<br>")
-                            options.append(
-                                MCQOption(
-                                    text=opt_text,
-                                    is_correct=opt_data.get("is_correct", False),
-                                )
-                            )
-                        elif isinstance(opt_data, str):
-                            # 简单格式：字符串列表，第一个是正确答案
-                            opt_text = opt_data.replace("\n", "<br>")
-                            options.append(MCQOption(text=opt_text, is_correct=len(options) == 0))
-            
-            if not options:
-                logger.warning("MCQ卡片缺少选项")
-                return None
-
-            # 验证是否有正确答案
-            if not any(opt.is_correct for opt in options):
-                logger.warning("MCQ卡片没有正确答案")
-                return None
-
-            # 支持 "Tags"/"tags" 字段
-            tags = card_data.get("Tags") or card_data.get("tags", [])
-            # 支持 "Note"/"Explanation"/"explanation" 字段
-            explanation = (
-                card_data.get("Note")
-                or card_data.get("Explanation")
-                or card_data.get("explanation")
-            )
-            # 将换行符替换为 HTML <br>
-            if explanation:
-                explanation = explanation.replace("\n", "<br>")
-            
-            # 提取 NoteA-F 字段并存储到 metadata 中
-            metadata = card_data.get("metadata", {})
-            option_letters = ["A", "B", "C", "D", "E", "F"]
-            for letter in option_letters:
-                note_key = f"Note{letter}"
-                note_value = card_data.get(note_key, "").strip()
-                if note_value:
-                    metadata[note_key] = note_value
-
-            return MCQCard(
-                front=front,
-                back="",  # MCQ卡片不使用back字段
-                card_type=CardType.MCQ,
-                options=options,
-                explanation=explanation,
-                tags=tags if isinstance(tags, list) else [],
-                metadata=metadata,
-            )
-
-        return None
-
-    def _filter_cards(self, cards: List[Card], card_type: str) -> List[Card]:
-        """
-        过滤低质量卡片
-
-        Args:
-            cards: 卡片列表
-            card_type: 卡片类型
-
-        Returns:
-            过滤后的卡片列表
-        """
-        filtered = []
-
-        for card in cards:
-            # 基本验证
-            if not card.front or len(card.front.strip()) == 0:
-                continue
-
-            if card.card_type == CardType.BASIC:
-                if not card.back or len(card.back.strip()) == 0:
-                    continue
-
-            elif card.card_type == CardType.CLOZE:
-                # 验证cloze标记
-                if "{{c" not in card.front:
-                    continue
-
-            elif card.card_type == CardType.MCQ:
-                if isinstance(card, MCQCard):
-                    if len(card.options) < 2:
-                        continue
-                    if not card.validate_options():
-                        continue
-
-            filtered.append(card)
-
-        logger.debug(f"质量过滤: {len(cards)} -> {len(filtered)}")
-        return filtered
-
-    def _deduplicate_cards(self, cards: List[Card]) -> List[Card]:
-        """
-        去重卡片（基于正面内容）
-
-        Args:
-            cards: 卡片列表
-
-        Returns:
-            去重后的卡片列表
-        """
-        seen = set()
-        unique_cards = []
-
-        for card in cards:
-            # 使用front内容作为唯一标识
-            front_normalized = card.front.lower().strip()
-            if front_normalized not in seen:
-                seen.add(front_normalized)
-                unique_cards.append(card)
-
-        logger.debug(f"去重: {len(cards)} -> {len(unique_cards)}")
-        return unique_cards
 
     def _estimate_card_count(self, content: str) -> int:
         """
@@ -981,86 +603,9 @@ class CardGenerator:
         self, content: str, target_card_count: int, max_cards_per_chunk: int = 20
     ) -> List[str]:
         """
-        根据目标卡片数量切分内容
+        根据目标卡片数量切分内容（已弃用，使用content_chunker.chunk_for_cards）
 
-        将内容切分成多个块，每个块最多生成max_cards_per_chunk张卡片。
-
-        Args:
-            content: 输入内容
-            target_card_count: 目标卡片总数
-            max_cards_per_chunk: 每个块最多生成的卡片数（默认20）
-
-        Returns:
-            内容块列表
+        保留此方法以保持向后兼容性。
         """
-        if target_card_count <= max_cards_per_chunk:
-            return [content]
+        return self.content_chunker.chunk_for_cards(content, target_card_count, max_cards_per_chunk)
 
-        # 计算需要多少个块
-        num_chunks = (target_card_count + max_cards_per_chunk - 1) // max_cards_per_chunk
-
-        # 估算每个块应该包含多少字符
-        # 假设每500字符生成1张卡片
-        chars_per_card = 500
-        chars_per_chunk = chars_per_card * max_cards_per_chunk
-
-        # 按段落切分（保持语义完整性）
-        paragraphs = content.split("\n\n")
-        if not paragraphs:
-            # 如果没有段落分隔，按换行符切分
-            paragraphs = [p for p in content.split("\n") if p.strip()]
-
-        if not paragraphs:
-            return [content]
-
-        chunks = []
-        current_chunk = []
-        current_chars = 0
-
-        for para in paragraphs:
-            para_chars = len(para)
-
-            # 如果当前块加上这个段落会超过限制，保存当前块
-            if current_chars + para_chars > chars_per_chunk * 1.1 and current_chunk:
-                chunks.append("\n\n".join(current_chunk))
-                current_chunk = [para]
-                current_chars = para_chars
-            else:
-                current_chunk.append(para)
-                current_chars += para_chars
-
-        # 添加最后一个块
-        if current_chunk:
-            chunks.append("\n\n".join(current_chunk))
-
-        # 如果切分后块数不够，尝试更细粒度的切分
-        if len(chunks) < num_chunks and len(chunks) > 0:
-            # 重新计算每个块应该包含的字符数
-            total_chars = len(content)
-            chars_per_chunk = total_chars // num_chunks
-
-            # 按句子切分
-            sentences = re.split(r'[。！？\n]', content)
-            sentences = [s.strip() for s in sentences if s.strip()]
-
-            if sentences:
-                chunks = []
-                current_chunk = []
-                current_chars = 0
-
-                for sent in sentences:
-                    sent_chars = len(sent)
-
-                    if current_chars + sent_chars > chars_per_chunk * 1.1 and current_chunk:
-                        chunks.append(" ".join(current_chunk))
-                        current_chunk = [sent]
-                        current_chars = sent_chars
-                    else:
-                        current_chunk.append(sent)
-                        current_chars += sent_chars
-
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
-
-        # 确保至少有一个块
-        return chunks if chunks else [content]

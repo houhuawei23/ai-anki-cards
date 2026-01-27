@@ -8,6 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ankigen.core.card_generator import CardGenerator, PromptTemplate
+from ankigen.core.response_parser import ResponseParser
+from ankigen.core.card_factory import CardFactory
+from ankigen.core.card_filter import CardFilter
+from ankigen.core.card_deduplicator import CardDeduplicator
 from ankigen.models.card import BasicCard, CardType, MCQCard
 from ankigen.models.config import GenerationConfig, LLMConfig, LLMProvider
 
@@ -74,7 +78,7 @@ class TestCardGenerator:
                 ]
             }
         )
-        cards = generator._parse_response(response_new, "basic")
+        cards = generator.response_parser.parse_response(response_new, "basic", generator.card_factory)
         assert len(cards) == 1
         assert isinstance(cards[0], BasicCard)
         assert cards[0].front == "问题1"
@@ -88,7 +92,7 @@ class TestCardGenerator:
             BasicCard(front="有效卡片2", back=""),  # 无效：back为空
         ]
 
-        filtered = generator._filter_cards(cards, "basic")
+        filtered = generator.card_filter.filter_cards(cards, "basic")
         assert len(filtered) == 1
         assert filtered[0].front == "有效卡片"
 
@@ -100,7 +104,7 @@ class TestCardGenerator:
             BasicCard(front="不重复", back="答案3"),
         ]
 
-        unique = generator._deduplicate_cards(cards)
+        unique = generator.card_deduplicator.deduplicate(cards)
         assert len(unique) == 2
 
     def test_estimate_card_count(self, generator):

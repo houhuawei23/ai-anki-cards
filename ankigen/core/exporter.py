@@ -14,30 +14,17 @@ import genanki
 import yaml
 from loguru import logger
 
+from ankigen.core.exporter_utils import (
+    ensure_output_dir,
+    format_tags,
+    get_card_type_string,
+    parse_tags_string,
+    validate_cards,
+)
 from ankigen.core.field_mapper import get_template_name, map_card_to_fields
 from ankigen.core.template_loader import get_template_meta
 from ankigen.models.card import Card, CardType, MCQCard
 from ankigen.utils.guid import generate_guid_from_card_fields
-
-
-def _get_card_type_value(card_type) -> str:
-    """
-    安全地获取卡片类型的字符串值
-    
-    由于 Pydantic 的 use_enum_values=True 配置，card_type 可能是枚举对象或字符串。
-    
-    Args:
-        card_type: 卡片类型（可能是 CardType 枚举或字符串）
-        
-    Returns:
-        卡片类型的字符串值
-    """
-    if hasattr(card_type, 'value'):
-        # 如果是枚举对象，获取其值
-        return card_type.value
-    else:
-        # 如果已经是字符串，直接返回
-        return str(card_type)
 
 
 class BaseExporter:
@@ -83,13 +70,12 @@ class APKGExporter(BaseExporter):
             output_path: 输出文件路径
             deck_id: 牌组ID，如果为None则随机生成
         """
-        if not cards:
-            logger.warning("没有卡片可导出")
+        if not validate_cards(cards):
             return
 
         try:
             # 确保输出目录存在
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            ensure_output_dir(output_path)
             
             # 生成牌组ID
             if deck_id is None:
@@ -339,8 +325,8 @@ class CSVExporter(BaseExporter):
                     [
                         card.front,
                         back,
-                        "; ".join(card.tags),
-                        _get_card_type_value(card.card_type),
+                        format_tags(card.tags),
+                        get_card_type_string(card.card_type),
                     ]
                 )
 
@@ -484,7 +470,7 @@ class ItemsTXTExporter(BaseExporter):
             fields = map_card_to_fields(card)
             # 生成GUID（排除Tags）
             guid_fields = {k: v for k, v in fields.items() if k.lower() not in ("tags", "标签")}
-            guid = generate_guid_from_card_fields(guid_fields, _get_card_type_value(card.card_type))
+            guid = generate_guid_from_card_fields(guid_fields, get_card_type_string(card.card_type))
 
             # 构建数据行
             row_values = [guid]
@@ -522,7 +508,7 @@ class ParsedCardsJSONExporter(BaseExporter):
             return
 
         # 确保输出目录存在
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_dir(output_path)
 
         # 将每张卡片映射到字段字典
         parsed_cards = []
@@ -531,18 +517,7 @@ class ParsedCardsJSONExporter(BaseExporter):
             # 将 Tags 字符串转换为列表（如果存在）
             if "Tags" in fields:
                 if isinstance(fields["Tags"], str):
-                    tags_str = fields["Tags"]
-                    if tags_str:
-                        # 解析标签（支持空格、分号、逗号分隔）
-                        if ";" in tags_str:
-                            tags = [t.strip() for t in tags_str.split(";") if t.strip()]
-                        elif "," in tags_str:
-                            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
-                        else:
-                            tags = [t.strip() for t in tags_str.split() if t.strip()]
-                        fields["Tags"] = tags
-                    else:
-                        fields["Tags"] = []
+                    fields["Tags"] = parse_tags_string(fields["Tags"])
                 elif isinstance(fields["Tags"], list):
                     # 如果已经是列表，直接使用
                     fields["Tags"] = fields["Tags"]
@@ -588,7 +563,7 @@ class APIResponseExporter(BaseExporter):
             return
 
         # 确保输出目录存在
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_dir(output_path)
 
         # 如果只有一个响应，直接保存
         if len(api_responses) == 1:
@@ -660,7 +635,7 @@ class ItemsWithTypeTXTExporter(BaseExporter):
             fields = map_card_to_fields(card)
             # 生成GUID（排除Tags）
             guid_fields = {k: v for k, v in fields.items() if k.lower() not in ("tags", "标签")}
-            guid = generate_guid_from_card_fields(guid_fields, _get_card_type_value(card.card_type))
+            guid = generate_guid_from_card_fields(guid_fields, get_card_type_string(card.card_type))
 
             # 获取模板名称
             card_template_name = get_template_name(card.card_type)
@@ -700,7 +675,7 @@ def _add_type_count_suffix(output_path: Path, cards: List[Card]) -> Path:
         return output_path
 
     # 获取卡片类型（假设所有卡片类型相同，取第一张卡片的类型）
-    card_type = _get_card_type_value(cards[0].card_type)
+    card_type = get_card_type_string(cards[0].card_type)
     card_count = len(cards)
 
     # 获取文件名和扩展名
@@ -893,8 +868,7 @@ def export_parsed_cards_json(
         card_type: 卡片类型（用于生成文件名）
         card_count: 卡片数量（用于生成文件名）
     """
-    if not cards:
-        logger.warning("没有卡片可导出")
+    if not validate_cards(cards):
         return
 
     # 如果需要，添加类型和数量后缀
