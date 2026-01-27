@@ -14,6 +14,20 @@
 7. 卡片之间要有逻辑关联，覆盖内容的主要知识点
 8. Note字段提供题目整体的解释说明
 9. NoteA-F字段（可选）提供对应选项的详细说明，未使用的选项可以不填写
+{% if basic_tags or optional_tags %}
+10. 标签要求：
+   {% if basic_tags %}
+   - 所有卡片必须包含以下基础标签：{{ basic_tags | join(', ') }}
+   {% endif %}
+   {% if optional_tags %}
+   - 可选标签列表（请根据卡片内容选择合适的标签）：
+     {% for tag in optional_tags %}
+     - {{ tag }}
+     {% endfor %}
+   - 每张卡片应选择1-3个最相关的可选标签，与基础标签组合使用
+   {% endif %}
+   - 标签必须从上述列表中选择，不要随意创建新标签
+{% endif %}
 
 ## 输入内容：
 {{ content }}

@@ -88,10 +88,10 @@ def map_card_to_fields(card: Card, template_meta: Optional[TemplateMeta] = None)
                     # 从 metadata 中读取，如果不存在则返回空字符串
                     fields[field_name] = card.metadata.get(field_name, "")
                 elif field_name == "Front":
-                    # 兼容性：如果模板有 Front 字段，使用 Question 的值
+                    # 如果模板有 Front 字段，使用 Question 的值
                     fields["Front"] = card.front
                 elif field_name == "Back":
-                    # 兼容性：如果模板有 Back 字段，格式化选项和答案
+                    # 如果模板有 Back 字段，格式化选项和答案
                     options_text = "\n".join(
                         [
                             f"{'✓' if opt.is_correct else '○'} {opt.text}"

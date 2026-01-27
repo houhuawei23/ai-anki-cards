@@ -104,6 +104,9 @@ class GenerationConfig(BaseModel):
     max_concurrent_requests: int = Field(
         default=5, ge=1, description="最大并发请求数（避免过多并发导致API限流）"
     )
+    tags_file: Optional[str] = Field(
+        default=None, description="标签文件路径（tags.yml），用于指定允许使用的标签"
+    )
 
     @field_validator("card_type")
     @classmethod

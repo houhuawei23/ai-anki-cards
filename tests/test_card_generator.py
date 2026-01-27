@@ -62,8 +62,7 @@ class TestCardGenerator:
         return CardGenerator(llm_config)
 
     def test_parse_response_basic(self, generator):
-        """测试解析Basic卡片响应（支持新旧字段格式）"""
-        # 测试新的大写字段格式
+        """测试解析Basic卡片响应"""
         response_new = json.dumps(
             {
                 "cards": [
@@ -80,24 +79,6 @@ class TestCardGenerator:
         assert isinstance(cards[0], BasicCard)
         assert cards[0].front == "问题1"
         assert cards[0].back == "答案1"
-        
-        # 测试旧的小写字段格式（向后兼容）
-        response_old = json.dumps(
-            {
-                "cards": [
-                    {
-                        "front": "问题2",
-                        "back": "答案2",
-                        "tags": ["标签2"],
-                    }
-                ]
-            }
-        )
-        cards = generator._parse_response(response_old, "basic")
-        assert len(cards) == 1
-        assert isinstance(cards[0], BasicCard)
-        assert cards[0].front == "问题2"
-        assert cards[0].back == "答案2"
 
     def test_filter_cards(self, generator):
         """测试卡片过滤"""

@@ -20,6 +20,7 @@ from ankigen.core.config_loader import load_model_info
 from ankigen.core.llm_engine import LLMEngine
 from ankigen.core.template_loader import get_template_dir
 from ankigen.core.estimator import create_estimator_from_config
+from ankigen.core.tags_loader import load_tags_file
 from ankigen.models.card import (
     BasicCard,
     Card,
@@ -40,6 +41,7 @@ class GenerationStats:
     total_time: float = 0.0
     api_responses: List[str] = field(default_factory=list)  # 保存 API 响应 JSON
     input_cache_hit_tokens: int = 0  # cache hit 的输入 token 数
+    prompts: List[str] = field(default_factory=list)  # 保存生成的提示词
     
     @property
     def total_tokens(self) -> int:
@@ -89,6 +91,8 @@ class PromptTemplate:
         card_count: int,
         difficulty: str = "medium",
         custom_prompt: Optional[str] = None,
+        basic_tags: Optional[List[str]] = None,
+        optional_tags: Optional[List[str]] = None,
     ) -> str:
         """
         渲染模板
@@ -110,6 +114,8 @@ class PromptTemplate:
                 content=content,
                 card_count=card_count,
                 difficulty=difficulty,
+                basic_tags=basic_tags or [],
+                optional_tags=optional_tags or [],
             )
 
         # 根据卡片类型确定模板目录
@@ -117,24 +123,10 @@ class PromptTemplate:
         template_dir = get_template_dir(card_type)
         
         if not template_dir:
-            logger.warning(f"未找到卡片类型 {template_name} 的模板目录，使用默认模板")
-            # 回退到旧的模板路径
-            fallback_dir = Path(__file__).parent.parent / "templates"
-            if fallback_dir.exists():
-                env = Environment(
-                    loader=FileSystemLoader(str(fallback_dir)),
-                    trim_blocks=True,
-                    lstrip_blocks=True,
-                )
-                template_file = f"{template_name}.j2"
-                if env.get_template(template_file):
-                    template = env.get_template(template_file)
-                    return template.render(
-                        content=content,
-                        card_count=card_count,
-                        difficulty=difficulty,
-                    )
-            raise FileNotFoundError(f"未找到卡片类型 {template_name} 的模板文件")
+            raise FileNotFoundError(
+                f"未找到卡片类型 {template_name} 的模板目录。"
+                f"请确保 cards_templates/{template_name}/prompt.j2 文件存在"
+            )
 
         # 加载 prompt.j2 文件
         template_path = template_dir / "prompt.j2"
@@ -150,6 +142,8 @@ class PromptTemplate:
             content=content,
             card_count=card_count,
             difficulty=difficulty,
+            basic_tags=basic_tags or [],
+            optional_tags=optional_tags or [],
         )
 
 
@@ -196,13 +190,40 @@ class CardGenerator:
         Returns:
             (卡片列表, 统计信息) 元组
         """
+        # 加载标签文件（如果指定）
+        basic_tags = []
+        optional_tags = []
+        if config.tags_file:
+            try:
+                tags_path = Path(config.tags_file)
+                tags_data = load_tags_file(tags_path)
+                basic_tags = tags_data.get("basic_tags", [])
+                optional_tags = tags_data.get("optional_tags", [])
+            except Exception as e:
+                logger.warning(f"加载标签文件失败: {e}，将不使用标签限制")
+        
         # 检查缓存
         if self.cache:
             cache_key = f"{config.card_type}:{config.card_count}:{content[:100]}"
-            cached_cards = self.cache.get(cache_key, prefix="cards")
-            if cached_cards:
+            cached_result = self.cache.get(cache_key, prefix="cards")
+            if cached_result:
                 logger.info("从缓存加载卡片")
-                return cached_cards
+                # 处理缓存格式：新格式是 (cards, stats) 元组，旧格式只有 cards 列表
+                if isinstance(cached_result, tuple) and len(cached_result) == 2:
+                    cards, stats = cached_result
+                    return cards, stats
+                elif isinstance(cached_result, list):
+                    # 旧格式缓存：只有卡片列表，创建空的 stats
+                    logger.debug("检测到旧格式缓存（只有卡片列表），创建空的统计信息")
+                    empty_stats = GenerationStats()
+                    return cached_result, empty_stats
+                else:
+                    logger.warning(f"未知的缓存格式: {type(cached_result)}，尝试直接返回")
+                    # 如果格式未知，尝试作为卡片列表处理
+                    if isinstance(cached_result, (list, tuple)):
+                        empty_stats = GenerationStats()
+                        return list(cached_result), empty_stats
+                    raise ValueError(f"无法处理缓存格式: {type(cached_result)}")
 
         # 确定目标卡片数量
         if config.card_count:
@@ -251,7 +272,9 @@ class CardGenerator:
                         self._generate_cards_single(
                             chunk, config, cards_per_chunk, output_dir,
                             max_tokens=strategy.max_tokens_per_request,
-                            task_id=i  # 传递任务编号
+                            task_id=i,  # 传递任务编号
+                            basic_tags=basic_tags,
+                            optional_tags=optional_tags,
                         )
                     )
 
@@ -292,6 +315,7 @@ class CardGenerator:
                     total_stats.output_tokens += stats.output_tokens
                     total_stats.total_time += stats.total_time
                     total_stats.api_responses.extend(stats.api_responses)
+                    total_stats.prompts.extend(stats.prompts)
                     logger.info(f"第 {i} 个块成功生成 {len(cards)} 张卡片")
                 else:
                     logger.warning(f"第 {i} 个块返回了意外的结果类型: {type(result)}")
@@ -308,10 +332,16 @@ class CardGenerator:
                 f"成功生成 {len(all_cards)} 张卡片（并发执行 {len(tasks)} 个任务）"
             )
 
-            # 保存到缓存
+            # 保存到缓存（保存 cards 和 stats 的元组）
             if self.cache:
                 cache_key = f"{config.card_type}:{config.card_count}:{content[:100]}"
-                self.cache.set(cache_key, all_cards, prefix="cards")
+                # 创建简化的 stats（不包含 prompts 和 api_responses，因为它们可能很大）
+                cached_stats = GenerationStats()
+                cached_stats.input_tokens = total_stats.input_tokens
+                cached_stats.output_tokens = total_stats.output_tokens
+                cached_stats.total_time = total_stats.total_time
+                cached_stats.input_cache_hit_tokens = total_stats.input_cache_hit_tokens
+                self.cache.set(cache_key, (all_cards, cached_stats), prefix="cards")
 
             # 显示统计信息
             self._display_stats(total_stats, len(all_cards))
@@ -322,8 +352,22 @@ class CardGenerator:
             card_count = min(target_card_count, strategy.cards_per_chunk)
             cards, stats = await self._generate_cards_single(
                 content, config, card_count, output_dir,
-                max_tokens=strategy.max_tokens_per_request
+                max_tokens=strategy.max_tokens_per_request,
+                basic_tags=basic_tags,
+                optional_tags=optional_tags,
             )
+            
+            # 保存到缓存（保存 cards 和 stats 的元组）
+            if self.cache:
+                cache_key = f"{config.card_type}:{config.card_count}:{content[:100]}"
+                # 创建简化的 stats（不包含 prompts 和 api_responses，因为它们可能很大）
+                cached_stats = GenerationStats()
+                cached_stats.input_tokens = stats.input_tokens
+                cached_stats.output_tokens = stats.output_tokens
+                cached_stats.total_time = stats.total_time
+                cached_stats.input_cache_hit_tokens = stats.input_cache_hit_tokens
+                self.cache.set(cache_key, (cards, cached_stats), prefix="cards")
+            
             # 显示统计信息
             self._display_stats(stats, len(cards))
             return cards, stats
@@ -336,6 +380,8 @@ class CardGenerator:
         output_dir: Optional[Path] = None,
         max_tokens: Optional[int] = None,
         task_id: Optional[int] = None,
+        basic_tags: Optional[List[str]] = None,
+        optional_tags: Optional[List[str]] = None,
     ) -> tuple[List[Card], GenerationStats]:
         """
         单次生成卡片（内部方法）
@@ -362,7 +408,11 @@ class CardGenerator:
                 card_count=card_count,
                 difficulty=config.difficulty,
                 custom_prompt=config.custom_prompt,
+                basic_tags=basic_tags or [],
+                optional_tags=optional_tags or [],
             )
+            # 保存提示词到统计信息
+            stats.prompts.append(prompt)
         except FileNotFoundError as e:
             logger.error(f"模板文件未找到: {e}")
             raise Exception(f"模板文件未找到: {e}。请检查卡片类型 '{config.card_type}' 的模板是否存在")
@@ -711,6 +761,9 @@ class CardGenerator:
             # 支持 "Front"/"front" 和 "Back"/"back" 字段
             front = card_data.get("Front") or card_data.get("front", "")
             back = card_data.get("Back") or card_data.get("back", "")
+            # 将换行符替换为 HTML <br>
+            front = front.replace("\n", "<br>") if front else ""
+            back = back.replace("\n", "<br>") if back else ""
             # 支持 "Tags"/"tags" 字段
             tags = card_data.get("Tags") or card_data.get("tags", [])
             
@@ -724,6 +777,8 @@ class CardGenerator:
         elif card_type_enum == CardType.CLOZE:
             # Cloze卡片使用 "Text" 字段
             text = card_data.get("Text") or card_data.get("text") or card_data.get("front", "")
+            # 将换行符替换为 HTML <br>
+            text = text.replace("\n", "<br>") if text else ""
             # 验证是否包含cloze标记
             if "{{c" not in text:
                 logger.warning("Cloze卡片缺少填空标记")
@@ -742,6 +797,8 @@ class CardGenerator:
         elif card_type_enum == CardType.MCQ:
             # MCQ卡片使用 "Question" 或 "Front" 字段
             front = card_data.get("Question") or card_data.get("Front") or card_data.get("front", "")
+            # 将换行符替换为 HTML <br>
+            front = front.replace("\n", "<br>") if front else ""
             
             # 支持新的格式：OptionA-F 字段
             options = []
@@ -754,26 +811,32 @@ class CardGenerator:
                 option_value = card_data.get(option_key, "").strip()
                 if option_value:
                     has_new_format = True
+                    # 将换行符替换为 HTML <br>
+                    option_value = option_value.replace("\n", "<br>")
                     # 从 Answer 字段判断是否正确
                     answer = card_data.get("Answer", "").strip().upper()
                     is_correct = letter in answer
                     options.append(MCQOption(text=option_value, is_correct=is_correct))
             
-            # 如果没有新格式，尝试旧格式（Options 数组）
+            # 如果没有新格式，尝试 Options 数组格式
             if not has_new_format:
                 options_data = card_data.get("Options") or card_data.get("options", [])
                 if options_data:
                     for opt_data in options_data:
                         if isinstance(opt_data, dict):
+                            opt_text = opt_data.get("text", "")
+                            # 将换行符替换为 HTML <br>
+                            opt_text = opt_text.replace("\n", "<br>")
                             options.append(
                                 MCQOption(
-                                    text=opt_data.get("text", ""),
+                                    text=opt_text,
                                     is_correct=opt_data.get("is_correct", False),
                                 )
                             )
                         elif isinstance(opt_data, str):
                             # 简单格式：字符串列表，第一个是正确答案
-                            options.append(MCQOption(text=opt_data, is_correct=len(options) == 0))
+                            opt_text = opt_data.replace("\n", "<br>")
+                            options.append(MCQOption(text=opt_text, is_correct=len(options) == 0))
             
             if not options:
                 logger.warning("MCQ卡片缺少选项")
@@ -792,6 +855,9 @@ class CardGenerator:
                 or card_data.get("Explanation")
                 or card_data.get("explanation")
             )
+            # 将换行符替换为 HTML <br>
+            if explanation:
+                explanation = explanation.replace("\n", "<br>")
             
             # 提取 NoteA-F 字段并存储到 metadata 中
             metadata = card_data.get("metadata", {})

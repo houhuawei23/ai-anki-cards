@@ -104,6 +104,17 @@ def generate(
         "--all",
         help="导出所有格式（items.yml, items.txt, items.with_type.txt, apkg, csv）",
     ),
+    tags_file: Optional[Path] = typer.Option(
+        None,
+        "--tags-file",
+        help="标签文件路径（tags.yml），用于指定允许使用的标签",
+        exists=False,
+    ),
+    show_prompt: bool = typer.Option(
+        False,
+        "--show-prompt",
+        help="在命令行中打印使用 jinja 生成的提示词",
+    ),
 ):
     """
     生成Anki卡片
@@ -154,6 +165,8 @@ def generate(
                     logger.debug(f"根据文件扩展名自动判断格式: {ext} -> {app_config.export.format}")
             if deck_name:
                 app_config.export.deck_name = deck_name
+            if tags_file:
+                app_config.generation.tags_file = str(tags_file)
         except Exception as e:
             logger.exception(f"配置参数处理失败: {e}")
             typer.echo(f"错误: 配置参数处理失败: {e}", err=True)
@@ -339,6 +352,47 @@ def generate(
             typer.echo("\n【缓存信息】")
             typer.echo("  缓存状态: 启用")
             
+            # 生成并显示提示词（如果指定）
+            if show_prompt:
+                typer.echo("\n【生成的提示词】")
+                try:
+                    # 创建实际的生成器实例以生成提示词
+                    card_generator = CardGenerator(
+                        llm_config=app_config.llm,
+                        cache=None,  # dry-run 模式下不使用缓存
+                    )
+                    
+                    # 加载标签文件（如果指定）
+                    basic_tags = []
+                    optional_tags = []
+                    if app_config.generation.tags_file:
+                        try:
+                            from ankigen.core.tags_loader import load_tags_file
+                            tags_path = Path(app_config.generation.tags_file)
+                            tags_data = load_tags_file(tags_path)
+                            basic_tags = tags_data.get("basic_tags", [])
+                            optional_tags = tags_data.get("optional_tags", [])
+                        except Exception as e:
+                            logger.warning(f"加载标签文件失败: {e}")
+                    
+                    # 生成提示词
+                    prompt = card_generator.template_manager.render(
+                        template_name=app_config.generation.card_type,
+                        content=content,
+                        card_count=card_count,
+                        difficulty=app_config.generation.difficulty,
+                        custom_prompt=app_config.generation.custom_prompt,
+                        basic_tags=basic_tags,
+                        optional_tags=optional_tags,
+                    )
+                    
+                    typer.echo("=" * 60)
+                    typer.echo(prompt)
+                    typer.echo("=" * 60)
+                except Exception as e:
+                    logger.exception(f"生成提示词失败: {e}")
+                    typer.echo(f"  错误: 无法生成提示词 - {e}", err=True)
+            
             # 总结
             typer.echo("\n" + "=" * 60)
             typer.echo("预览完成，未实际调用API")
@@ -388,20 +442,26 @@ def generate(
             typer.echo("请检查日志以获取更多信息", err=True)
             raise typer.Exit(1)
         
-        # 处理返回结果（可能是 tuple 或 list）
+        # 处理返回结果（tuple: cards, stats）
         try:
-            if isinstance(result, tuple) and len(result) == 2:
-                cards, stats = result
-            else:
-                # 兼容旧版本（直接返回 cards）
-                cards = result
-                stats = None
-        except Exception as e:
+            cards, stats = result
+        except (ValueError, TypeError) as e:
             logger.error(f"处理生成结果时发生错误: {e}")
             import traceback
             logger.error(f"详细错误信息:\n{traceback.format_exc()}")
-            typer.echo(f"错误: 处理生成结果失败: {e}", err=True)
+            typer.echo(f"错误: 生成结果格式错误，期望 (cards, stats) 元组: {e}", err=True)
             raise typer.Exit(1)
+        
+        # 显示提示词（如果指定）
+        if show_prompt and stats and stats.prompts:
+            typer.echo("\n" + "=" * 60)
+            typer.echo("生成的提示词:")
+            typer.echo("=" * 60)
+            for i, prompt in enumerate(stats.prompts, 1):
+                if len(stats.prompts) > 1:
+                    typer.echo(f"\n【提示词 {i}/{len(stats.prompts)}】")
+                typer.echo(prompt)
+                typer.echo("\n" + "-" * 60)
 
         # 即使没有卡片，也保存 API 响应以便调试
         if not cards:
@@ -494,6 +554,25 @@ def generate(
                     logger.error(f"导出 API 响应失败: {e}")
                     typer.echo(f"  ✗ api_response: 导出失败 - {e}", err=True)
 
+            # 导出提示词文件（如果存在）
+            if stats and stats.prompts:
+                prompt_output_file = output_dir / f"{output_stem}.prompt.md"
+                try:
+                    with open(prompt_output_file, "w", encoding="utf-8") as f:
+                        for i, prompt in enumerate(stats.prompts, 1):
+                            if len(stats.prompts) > 1:
+                                f.write(f"# 提示词 {i}/{len(stats.prompts)}\n\n")
+                            f.write("```\n")
+                            f.write(prompt)
+                            f.write("\n```\n")
+                            if i < len(stats.prompts):
+                                f.write("\n---\n\n")
+                    exported_files.append(prompt_output_file)
+                    typer.echo(f"  ✓ prompt: {prompt_output_file}")
+                except Exception as e:
+                    logger.error(f"导出提示词文件失败: {e}")
+                    typer.echo(f"  ✗ prompt: 导出失败 - {e}", err=True)
+            
             # 导出解析后的卡片 JSON
             parsed_output_file = output_dir / f"{output_stem}.parsed.json"
             try:
