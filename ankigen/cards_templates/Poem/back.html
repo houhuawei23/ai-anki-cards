@@ -15,58 +15,61 @@
 </div>
 
 <script>
-var content = document.getElementById('content')
-var contents = content.innerHTML.split('<br>').map(function(line) {
-  return '<div class="hidden">' + line + '</div>'
-})
-content.innerHTML = contents.join('')
-var footnotes = document.getElementById('footnotes')
-footnotes.classList = 'hidden'
+  var content = document.getElementById("content");
+  var contents = content.innerHTML.split("<br>").map(function (line) {
+    return '<div class="hidden">' + line + "</div>";
+  });
+  content.innerHTML = contents.join("");
+  var footnotes = document.getElementById("footnotes");
+  footnotes.classList = "hidden";
 
-var progressbar = document.getElementById("progressbar")
+  var progressbar = document.getElementById("progressbar");
 
-var clock = {
-  index: 0,
-  timer: null,
-  ticks: -1,
-  maxTicks: 35,
-  click: false,
-  tick: function () {
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
+  var clock = {
+    index: 0,
+    timer: null,
+    ticks: -1,
+    maxTicks: 35,
+    click: false,
+    tick: function () {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+
+      if (this.ticks > this.maxTicks || this.click === true) {
+        content.children[this.index].classList = "";
+        this.index += 1;
+        this.ticks = 0;
+        this.click = false;
+        progressbar.style.width = "0%";
+      } else {
+        this.ticks += 1;
+        progressbar.style.width =
+          ((this.ticks - 1) / (this.maxTicks - 1)) * 100 + "%";
+      }
+
+      if (this.index < contents.length) {
+        this.timer = setTimeout(function () {
+          clock.tick();
+        }, 100);
+      } else {
+        footnotes.classList = "";
+        document.getElementById("timer-visual").style.display = "none";
+      }
+    },
+  };
+
+  var handler = function () {
+    if (clock.ticks > 5 && clock.ticks < 30) {
+      clock.click = true;
+      clock.tick();
+      clock.ticks = 5;
     }
+  };
 
-    if (this.ticks > this.maxTicks || this.click === true) {
-      content.children[this.index].classList = ''
-      this.index += 1
-      this.ticks = 0
-      this.click = false
-      progressbar.style.width = "0%"
-    } else {
-      this.ticks += 1
-      progressbar.style.width = ((this.ticks - 1) / (this.maxTicks - 1)) * 100 + "%"
-    }
+  document.addEventListener("click", handler);
+  document.addEventListener("touchstart", handler);
 
-    if (this.index < contents.length) {
-      this.timer = setTimeout(function () { clock.tick() }, 100)
-    } else {
-      footnotes.classList = ''
-      document.getElementById("timer-visual").style.display = "none"
-    }
-  }
-}
-
-var handler = function () {
-  if (clock.ticks > 5 && clock.ticks < 30) {
-    clock.click = true
-    clock.tick()
-    clock.ticks = 5
-  }
-}
-
-document.addEventListener('click', handler)
-document.addEventListener('touchstart', handler)
-
-clock.tick()
+  clock.tick();
 </script>

@@ -14,6 +14,7 @@ from typing import AsyncIterator, Optional, Tuple
 import aiohttp
 from loguru import logger
 
+from ankigen.core.config_loader import load_model_info
 from ankigen.models.config import LLMConfig, LLMProvider
 
 
@@ -34,6 +35,8 @@ class BaseLLMProvider(ABC):
         self.config = config
         self.api_key = self._get_api_key()
         self.base_url = config.base_url or self._get_default_base_url()
+        # 加载 token_per_character 配置
+        self._token_per_char_config = self._load_token_per_character_config()
 
     def _get_api_key(self) -> Optional[str]:
         """
@@ -107,13 +110,38 @@ class BaseLLMProvider(ABC):
         estimated_tokens = self._estimate_tokens(result)
         yield (result, estimated_tokens)
 
+    def _load_token_per_character_config(self) -> Optional[dict]:
+        """
+        从 model_info.yml 加载 token_per_character 配置
+        
+        Returns:
+            包含 english 和 chinese 键的字典，如果未找到则返回 None
+        """
+        try:
+            model_info_dict = load_model_info()
+            if model_info_dict:
+                models = model_info_dict.get("models", {})
+                # 根据配置中的 model_name 查找对应的模型信息
+                model_name = self.config.model_name
+                if model_name in models:
+                    model_data = models[model_name]
+                    token_config = model_data.get("token_per_character", {})
+                    if token_config:
+                        return {
+                            "english": token_config.get("english", 0.3),
+                            "chinese": token_config.get("chinese", 0.6),
+                        }
+        except Exception as e:
+            logger.debug(f"加载 token_per_character 配置失败: {e}")
+        return None
+
     def _estimate_tokens(self, text: str) -> int:
         """
         估算文本的 token 数
         
-        使用简单的启发式方法：
-        - 中文字符：约 1.5 字符/token
-        - 英文单词：约 4 字符/token
+        优先使用 model_info.yml 中的配置：
+        - 如果配置存在：使用配置中的 token_per_character 值
+        - 如果配置不存在：使用默认启发式方法（中文字符约 1.5 字符/token，其他字符约 4 字符/token）
         
         Args:
             text: 文本内容
@@ -125,8 +153,18 @@ class BaseLLMProvider(ABC):
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
         # 统计其他字符数
         other_chars = len(text) - chinese_chars
-        # 估算：中文字符按 1.5 字符/token，其他字符按 4 字符/token
-        estimated = int(chinese_chars / 1.5 + other_chars / 4)
+        
+        # 如果配置存在，使用配置值
+        if self._token_per_char_config:
+            chinese_token_ratio = self._token_per_char_config.get("chinese", 0.6)
+            english_token_ratio = self._token_per_char_config.get("english", 0.3)
+            # token_per_character 表示每个字符对应的 token 数
+            # 例如：0.6 表示 1 个中文字符 ≈ 0.6 token，即 1 token ≈ 1.67 字符
+            estimated = int(chinese_chars * chinese_token_ratio + other_chars * english_token_ratio)
+        else:
+            # 默认启发式方法：中文字符按 1.5 字符/token，其他字符按 4 字符/token
+            estimated = int(chinese_chars / 1.5 + other_chars / 4)
+        
         return max(estimated, 1)  # 至少返回 1
 
     async def generate_with_retry(
@@ -358,6 +396,38 @@ class OpenAIProvider(BaseLLMProvider):
 class DeepSeekProvider(BaseLLMProvider):
     """DeepSeek API提供商（OpenAI兼容）"""
 
+    def __init__(self, config: LLMConfig):
+        """
+        初始化DeepSeek提供商
+        
+        Args:
+            config: LLM配置对象
+        """
+        super().__init__(config)
+        # 加载 JSON output 配置
+        self._json_output_enabled = self._load_json_output_config()
+
+    def _load_json_output_config(self) -> bool:
+        """
+        从 model_info.yml 加载 functions.json_output 配置
+        
+        Returns:
+            如果配置为 true 则返回 True，否则返回 False
+        """
+        try:
+            model_info_dict = load_model_info()
+            if model_info_dict:
+                models = model_info_dict.get("models", {})
+                # 根据配置中的 model_name 查找对应的模型信息
+                model_name = self.config.model_name
+                if model_name in models:
+                    model_data = models[model_name]
+                    functions = model_data.get("functions", {})
+                    return functions.get("json_output", False)
+        except Exception as e:
+            logger.debug(f"加载 json_output 配置失败: {e}")
+        return False
+
     def _get_env_api_key(self) -> Optional[str]:
         """从环境变量获取DeepSeek API密钥"""
         return os.getenv("DEEPSEEK_API_KEY")
@@ -391,6 +461,10 @@ class DeepSeekProvider(BaseLLMProvider):
             "max_tokens": self.config.max_tokens,
             "top_p": self.config.top_p,
         }
+        
+        # 如果启用了 JSON output，添加 response_format
+        if self._json_output_enabled:
+            payload["response_format"] = {"type": "json_object"}
 
         # 设置超时：连接超时10秒，总超时使用配置值，读取超时使用配置值
         timeout = aiohttp.ClientTimeout(
@@ -464,6 +538,10 @@ class DeepSeekProvider(BaseLLMProvider):
             "top_p": self.config.top_p,
             "stream": True,  # 启用流式输出
         }
+        
+        # 如果启用了 JSON output，添加 response_format
+        if self._json_output_enabled:
+            payload["response_format"] = {"type": "json_object"}
 
         timeout = aiohttp.ClientTimeout(
             connect=10,
