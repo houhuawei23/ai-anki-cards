@@ -32,27 +32,21 @@ class TestOpenAIProvider:
         """测试生成文本（mock）"""
         provider = OpenAIProvider(config)
 
-        mock_response = {"choices": [{"message": {"content": "生成的文本"}}]}
+        # Mock LiteLLM 响应对象
+        mock_message = MagicMock()
+        mock_message.content = "生成的文本"
 
-        # Mock响应对象（异步上下文管理器）
-        mock_response_obj = MagicMock()
-        mock_response_obj.status = 200
-        mock_response_obj.json = AsyncMock(return_value=mock_response)
-        mock_response_obj.__aenter__ = AsyncMock(return_value=mock_response_obj)
-        mock_response_obj.__aexit__ = AsyncMock(return_value=False)
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
 
-        # Mock post方法，返回异步上下文管理器
-        mock_post = MagicMock(return_value=mock_response_obj)
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
 
-        # Mock session（异步上下文管理器）
-        mock_session = MagicMock()
-        mock_session.post = mock_post
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("aiohttp.ClientSession", return_value=mock_session):
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_acompletion:
+            mock_acompletion.return_value = mock_response
             result = await provider.generate("测试提示词")
             assert result == "生成的文本"
+            mock_acompletion.assert_called_once()
 
 
 class TestDeepSeekProvider:
@@ -72,27 +66,21 @@ class TestDeepSeekProvider:
         """测试生成文本（mock）"""
         provider = DeepSeekProvider(config)
 
-        mock_response = {"choices": [{"message": {"content": "生成的文本"}}]}
+        # Mock LiteLLM 响应对象
+        mock_message = MagicMock()
+        mock_message.content = "生成的文本"
 
-        # Mock响应对象（异步上下文管理器）
-        mock_response_obj = MagicMock()
-        mock_response_obj.status = 200
-        mock_response_obj.json = AsyncMock(return_value=mock_response)
-        mock_response_obj.__aenter__ = AsyncMock(return_value=mock_response_obj)
-        mock_response_obj.__aexit__ = AsyncMock(return_value=False)
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
 
-        # Mock post方法，返回异步上下文管理器
-        mock_post = MagicMock(return_value=mock_response_obj)
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
 
-        # Mock session（异步上下文管理器）
-        mock_session = MagicMock()
-        mock_session.post = mock_post
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("aiohttp.ClientSession", return_value=mock_session):
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_acompletion:
+            mock_acompletion.return_value = mock_response
             result = await provider.generate("测试提示词")
             assert result == "生成的文本"
+            mock_acompletion.assert_called_once()
 
 
 class TestLLMEngine:

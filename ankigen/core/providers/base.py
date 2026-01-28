@@ -9,7 +9,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Optional, Tuple
 
-import aiohttp
 from loguru import logger
 
 from ankigen.core.config_loader import load_model_info
@@ -178,7 +177,7 @@ class BaseLLMProvider(ABC):
         for attempt in range(self.config.max_retries + 1):
             try:
                 return await self.generate(prompt, system_prompt)
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (asyncio.TimeoutError, ConnectionError) as e:
                 # 网络错误和超时错误应该重试
                 last_error = e
                 if attempt < self.config.max_retries:

@@ -5,10 +5,9 @@ OpenAI兼容API提供商基类
 """
 
 import asyncio
-import json
 from typing import AsyncIterator, Dict, List, Optional, Tuple
 
-import aiohttp
+import litellm
 from loguru import logger
 
 from ankigen.core.providers.base import BaseLLMProvider
@@ -106,131 +105,35 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         # 默认实现：不添加任何特定参数
         # 子类可以覆盖此方法来添加特定参数
 
-    def _build_headers(self) -> Dict[str, str]:
+    def _get_litellm_model_name(self) -> str:
         """
-        构建请求头
+        获取 LiteLLM 模型名称
+
+        根据提供商类型返回 LiteLLM 格式的模型名称。
 
         Returns:
-            请求头字典
+            LiteLLM 模型名称
         """
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        # 默认返回原始模型名称，子类可以覆盖
+        return self.config.model_name
 
-    def _get_timeout(self) -> aiohttp.ClientTimeout:
+    def _get_litellm_api_key(self) -> Optional[str]:
         """
-        获取超时配置
+        获取 LiteLLM API 密钥
 
         Returns:
-            超时配置对象
+            API 密钥
         """
-        return aiohttp.ClientTimeout(
-            connect=10,
-            total=self.config.timeout,
-            sock_read=self.config.timeout,
-        )
+        return self.api_key
 
-    async def _handle_response(self, response: aiohttp.ClientResponse) -> str:
+    def _get_litellm_api_base(self) -> Optional[str]:
         """
-        处理HTTP响应
-
-        Args:
-            response: HTTP响应对象
+        获取 LiteLLM API Base URL
 
         Returns:
-            生成的文本内容
-
-        Raises:
-            Exception: 如果响应状态码不是200或响应格式错误
+            API Base URL
         """
-        if response.status != 200:
-            try:
-                error_text = await response.text()
-            except Exception:
-                error_text = f"无法读取错误响应 (状态码 {response.status})"
-            raise Exception(
-                f"{self.provider_name} API错误 (状态码 {response.status}): {error_text}"
-            )
-
-        try:
-            data = await response.json()
-            if "choices" not in data or len(data["choices"]) == 0:
-                error_msg = (
-                    data.get("error", {}).get("message", "未知错误")
-                    if "error" in data
-                    else "响应中没有choices字段"
-                )
-                raise LLMProviderError(f"{self.provider_name} API返回错误: {error_msg}")
-            return data["choices"][0]["message"]["content"]
-        except KeyError as e:
-            error_msg = f"响应格式错误，缺少字段: {e}"
-            logger.error(f"{error_msg}，响应数据: {data if 'data' in locals() else '无法获取'}")
-            raise LLMProviderError(error_msg) from e
-        except asyncio.TimeoutError as e:
-            raise LLMProviderError(f"读取响应超时: {e}") from e
-        except aiohttp.ClientError as e:
-            raise LLMProviderError(f"连接错误: {e}") from e
-        except json.JSONDecodeError as e:
-            error_text = await response.text() if "response" in locals() else "无法读取响应"
-            logger.error(f"JSON解析失败: {e}，响应内容: {error_text[:500]}")
-            raise LLMProviderError(f"响应JSON解析失败: {e}") from e
-
-    async def _parse_stream_response(
-        self, response: aiohttp.ClientResponse
-    ) -> AsyncIterator[Tuple[str, int]]:
-        """
-        解析流式响应（SSE格式）
-
-        Args:
-            response: HTTP响应对象
-
-        Yields:
-            (文本片段, 累计token数) 元组
-
-        Raises:
-            Exception: 如果响应状态码不是200
-        """
-        if response.status != 200:
-            try:
-                error_text = await response.text()
-            except Exception:
-                error_text = f"无法读取错误响应 (状态码 {response.status})"
-            raise Exception(
-                f"{self.provider_name} API错误 (状态码 {response.status}): {error_text}"
-            )
-
-        accumulated_text = ""
-        accumulated_tokens = 0
-        buffer = ""
-
-        async for chunk in response.content.iter_any():
-            buffer += chunk.decode("utf-8", errors="ignore")
-            # 按行处理
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                line = line.strip()
-
-                if not line or line == "data: [DONE]":
-                    continue
-
-                if line.startswith("data: "):
-                    line = line[6:]  # 移除 "data: " 前缀
-
-                try:
-                    data = json.loads(line)
-                    if "choices" in data and len(data["choices"]) > 0:
-                        delta = data["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            accumulated_text += content
-                            # 估算新增的 token 数
-                            new_tokens = self._estimate_tokens(content)
-                            accumulated_tokens += new_tokens
-                            yield (content, accumulated_tokens)
-                except json.JSONDecodeError:
-                    # 忽略无效的 JSON 行
-                    continue
+        return self.base_url
 
     async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
@@ -250,25 +153,45 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if not self.api_key:
             raise ValueError(f"{self.provider_name} API密钥未设置")
 
-        url = f"{self.base_url}/chat/completions"
-        headers = self._build_headers()
         messages = self._build_messages(prompt, system_prompt)
         payload = self._build_payload(messages, stream=False)
-        timeout = self._get_timeout()
+
+        # 构建 LiteLLM 调用参数
+        litellm_kwargs = {
+            "model": self._get_litellm_model_name(),
+            "messages": messages,
+            "temperature": payload.get("temperature"),
+            "max_tokens": payload.get("max_tokens"),
+            "top_p": payload.get("top_p"),
+            "api_key": self._get_litellm_api_key(),
+            "timeout": self.config.timeout,
+        }
+
+        # 添加 API base URL（如果提供）
+        api_base = self._get_litellm_api_base()
+        if api_base:
+            litellm_kwargs["api_base"] = api_base
+
+        # 添加提供商特定参数
+        if "presence_penalty" in payload:
+            litellm_kwargs["presence_penalty"] = payload["presence_penalty"]
+        if "frequency_penalty" in payload:
+            litellm_kwargs["frequency_penalty"] = payload["frequency_penalty"]
+        if "response_format" in payload:
+            litellm_kwargs["response_format"] = payload["response_format"]
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
-                url, headers=headers, json=payload
-            ) as response:
-                return await self._handle_response(response)
-        except asyncio.TimeoutError as e:
-            raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}")
-        except aiohttp.ClientError as e:
-            raise Exception(f"HTTP客户端错误: {e}")
+            response = await litellm.acompletion(**litellm_kwargs)
+            if not response or not response.choices or len(response.choices) == 0:
+                raise LLMProviderError(f"{self.provider_name} API返回错误: 响应中没有choices字段")
+            return response.choices[0].message.content or ""
         except Exception as e:
-            # 捕获所有其他异常并记录详细信息
+            # 捕获所有异常并记录详细信息
+            error_msg = str(e)
+            if "timeout" in error_msg.lower() or isinstance(e, asyncio.TimeoutError):
+                raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}") from e
             logger.exception(f"{self.provider_name} API调用失败: {e}")
-            raise
+            raise LLMProviderError(f"{self.provider_name} API调用失败: {error_msg}") from e
 
     async def generate_stream(
         self, prompt: str, system_prompt: Optional[str] = None
@@ -290,19 +213,54 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if not self.api_key:
             raise ValueError(f"{self.provider_name} API密钥未设置")
 
-        url = f"{self.base_url}/chat/completions"
-        headers = self._build_headers()
         messages = self._build_messages(prompt, system_prompt)
         payload = self._build_payload(messages, stream=True)
-        timeout = self._get_timeout()
+
+        # 构建 LiteLLM 调用参数
+        litellm_kwargs = {
+            "model": self._get_litellm_model_name(),
+            "messages": messages,
+            "temperature": payload.get("temperature"),
+            "max_tokens": payload.get("max_tokens"),
+            "top_p": payload.get("top_p"),
+            "stream": True,
+            "api_key": self._get_litellm_api_key(),
+            "timeout": self.config.timeout,
+        }
+
+        # 添加 API base URL（如果提供）
+        api_base = self._get_litellm_api_base()
+        if api_base:
+            litellm_kwargs["api_base"] = api_base
+
+        # 添加提供商特定参数
+        if "presence_penalty" in payload:
+            litellm_kwargs["presence_penalty"] = payload["presence_penalty"]
+        if "frequency_penalty" in payload:
+            litellm_kwargs["frequency_penalty"] = payload["frequency_penalty"]
+        if "response_format" in payload:
+            litellm_kwargs["response_format"] = payload["response_format"]
+
+        accumulated_tokens = 0
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
-                url, headers=headers, json=payload
-            ) as response:
-                async for chunk in self._parse_stream_response(response):
-                    yield chunk
-        except asyncio.TimeoutError as e:
-            raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}")
-        except aiohttp.ClientError as e:
-            raise Exception(f"HTTP客户端错误: {e}")
+            # LiteLLM 使用 acompletion 配合 stream=True 进行异步流式调用
+            response_stream = await litellm.acompletion(**litellm_kwargs)
+            async for chunk in response_stream:
+                if not chunk or not chunk.choices or len(chunk.choices) == 0:
+                    continue
+
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    content = delta.content
+                    # 估算新增的 token 数
+                    new_tokens = self._estimate_tokens(content)
+                    accumulated_tokens += new_tokens
+                    yield (content, accumulated_tokens)
+        except Exception as e:
+            # 捕获所有异常并记录详细信息
+            error_msg = str(e)
+            if "timeout" in error_msg.lower() or isinstance(e, asyncio.TimeoutError):
+                raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}") from e
+            logger.exception(f"{self.provider_name} API调用失败: {e}")
+            raise LLMProviderError(f"{self.provider_name} API调用失败: {error_msg}") from e
