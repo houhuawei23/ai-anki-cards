@@ -7,11 +7,12 @@
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Optional
 
 from loguru import logger
 
-from ankigen.core.config_loader import load_model_info
+from ankigen.core.config_loader import find_project_root, load_model_info, load_yaml_config
 from ankigen.models.config import LLMConfig
 
 
@@ -42,6 +43,47 @@ class ChunkingStrategy:
     num_chunks: int  # 需要切分的块数
     cards_per_chunk: int  # 每个块生成的卡片数
     max_tokens_per_request: int  # 每次API请求的max_tokens
+
+
+def load_card_metrics(card_metrics_path: Optional[Path] = None) -> Dict[str, CardTypeMetrics]:
+    """
+    加载卡片类型指标配置
+
+    Args:
+        card_metrics_path: card-metrics.yml 文件路径，如果为None则自动查找
+
+    Returns:
+        卡片类型指标字典，如果文件不存在则返回空字典
+    """
+    if card_metrics_path is None:
+        # 查找项目根目录的 card-metrics.yml
+        project_root = find_project_root()
+        if project_root:
+            card_metrics_path = project_root / "card-metrics.yml"
+        else:
+            # 如果找不到项目根目录，尝试当前工作目录
+            card_metrics_path = Path.cwd() / "card-metrics.yml"
+
+    if not card_metrics_path or not card_metrics_path.exists():
+        logger.debug(f"卡片指标文件不存在: {card_metrics_path}，将使用默认值")
+        return {}
+
+    try:
+        config_dict = load_yaml_config(card_metrics_path)
+        card_metrics_data = config_dict.get("card_metrics", {})
+
+        card_metrics = {}
+        for card_type, metrics in card_metrics_data.items():
+            card_metrics[card_type.lower()] = CardTypeMetrics(
+                avg_time_per_card=metrics.get("avg_time_per_card", 5.0),
+                avg_tokens_per_card=metrics.get("avg_tokens_per_card", 150),
+            )
+
+        logger.debug(f"已加载卡片指标: {card_metrics_path}")
+        return card_metrics
+    except Exception as e:
+        logger.warning(f"加载卡片指标文件失败: {e}，将使用默认值")
+        return {}
 
 
 class ResourceEstimator:
@@ -75,14 +117,13 @@ class ResourceEstimator:
 
     @staticmethod
     def _parse_model_info(model_data: dict) -> ModelInfo:
-        """解析模型信息字典为ModelInfo对象"""
-        card_metrics = {}
-        metrics_data = model_data.get("card_metrics", {})
-        for card_type, metrics in metrics_data.items():
-            card_metrics[card_type] = CardTypeMetrics(
-                avg_time_per_card=metrics.get("avg_time_per_card", 5.0),
-                avg_tokens_per_card=metrics.get("avg_tokens_per_card", 150),
-            )
+        """
+        解析模型信息字典为ModelInfo对象
+
+        注意：card_metrics 现在从 card-metrics.yml 单独加载，不再从 model_data 中读取
+        """
+        # 从 card-metrics.yml 加载卡片指标
+        card_metrics = load_card_metrics()
 
         max_output = model_data.get("max_output", {})
         return ModelInfo(

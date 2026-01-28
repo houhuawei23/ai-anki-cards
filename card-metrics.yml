@@ -1,0 +1,10 @@
+card_metrics:
+  basic:
+    avg_time_per_card: 5.0 # 秒
+    avg_tokens_per_card: 150
+  cloze:
+    avg_time_per_card: 5.0 # 秒
+    avg_tokens_per_card: 150
+  mcq:
+    avg_time_per_card: 15.0 # 秒
+    avg_tokens_per_card: 500

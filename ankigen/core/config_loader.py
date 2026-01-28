@@ -463,12 +463,59 @@ def load_model_info(model_info_path: Optional[Path] = None) -> Optional[Dict[str
     """
     加载模型信息配置文件
 
+    优先从 providers.yml 加载，如果不存在则从 model_info.yml 加载（向后兼容）。
+
     Args:
-        model_info_path: 模型信息文件路径，如果为None则自动查找项目根目录的model_info.yml
+        model_info_path: 模型信息文件路径，如果为None则自动查找
 
     Returns:
         模型信息字典，如果文件不存在则返回None
     """
+    # Try to load from llm-engine providers.yml first
+    try:
+        from llm_engine.config_loader import load_providers_config
+
+        # Try to find providers.yml
+        providers_config = None
+        providers_paths = [
+            Path("providers.yml"),
+            find_project_root() / "providers.yml" if find_project_root() else None,
+            Path(__file__).parent.parent.parent / "providers.yml",
+        ]
+
+        for path in providers_paths:
+            if path and path.exists():
+                try:
+                    providers_config = load_providers_config(path)
+                    break
+                except Exception:
+                    continue
+
+        if providers_config:
+            # Convert providers.yml format to model_info.yml format for compatibility
+            models_dict = {}
+            providers = providers_config.get("providers", {})
+
+            for _provider_name, provider_config in providers.items():
+                models = provider_config.get("models", [])
+                for model in models:
+                    if isinstance(model, dict):
+                        model_name = model.get("name")
+                        if model_name:
+                            models_dict[model_name] = model
+                    elif isinstance(model, str):
+                        models_dict[model] = {}
+
+            if models_dict:
+                logger.debug("已从 providers.yml 加载模型信息")
+                return {"models": models_dict}
+    except ImportError:
+        # llm-engine not available, fall back to model_info.yml
+        logger.debug("llm-engine 不可用，使用 model_info.yml")
+    except Exception as e:
+        logger.debug(f"从 providers.yml 加载失败: {e}，尝试 model_info.yml")
+
+    # Fallback to model_info.yml (backward compatibility)
     if model_info_path is None:
         # 查找项目根目录的model_info.yml
         project_root = find_project_root()
