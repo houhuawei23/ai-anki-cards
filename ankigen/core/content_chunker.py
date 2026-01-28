@@ -7,13 +7,11 @@
 import re
 from typing import List
 
-from loguru import logger
-
 
 class ContentChunker:
     """
     内容切分器类
-    
+
     负责根据目标卡片数量切分内容。
     """
 
@@ -46,7 +44,7 @@ class ContentChunker:
 
         # 按段落切分（保持语义完整性）
         chunks = self._chunk_by_paragraphs(content, num_chunks, chars_per_chunk)
-        
+
         # 如果切分后块数不够，尝试更细粒度的切分
         if len(chunks) < num_chunks and len(chunks) > 0:
             chunks = self._chunk_by_sentences(content, num_chunks)
@@ -59,12 +57,12 @@ class ContentChunker:
     ) -> List[str]:
         """
         按段落切分内容
-        
+
         Args:
             content: 输入内容
             num_chunks: 目标块数
             chars_per_chunk: 每个块的字符数
-            
+
         Returns:
             内容块列表
         """
@@ -101,11 +99,11 @@ class ContentChunker:
     def _chunk_by_sentences(self, content: str, num_chunks: int) -> List[str]:
         """
         按句子切分内容
-        
+
         Args:
             content: 输入内容
             num_chunks: 目标块数
-            
+
         Returns:
             内容块列表
         """
@@ -114,7 +112,7 @@ class ContentChunker:
         chars_per_chunk = total_chars // num_chunks
 
         # 按句子切分
-        sentences = re.split(r'[。！？\n]', content)
+        sentences = re.split(r"[。！？\n]", content)
         sentences = [s.strip() for s in sentences if s.strip()]
 
         if not sentences:

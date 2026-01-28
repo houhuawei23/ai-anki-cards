@@ -210,16 +210,58 @@ ankigen/
 
 ```bash
 pytest tests/
+
+# 显示覆盖率
+pytest --cov=ankigen --cov-report=html
 ```
 
-### 代码风格
+### 代码质量工具
 
-项目使用black和isort进行代码格式化：
+项目使用现代化的代码质量工具链：
+
+- **Ruff**: 代码检查和格式化（替代 flake8 + isort + black）
+- **MyPy**: 静态类型检查
+- **Pydocstyle**: 文档字符串检查
+- **Bandit**: 安全漏洞扫描
+- **Safety**: 依赖漏洞扫描
+
+#### 快速开始
 
 ```bash
-black ankigen/
-isort ankigen/
+# 安装开发工具
+pip install -e ".[dev]"
+
+# 设置 pre-commit hooks（推荐）
+pre-commit install
+
+# 运行完整检查
+./scripts/check_code_quality.sh
+
+# 或使用快速检查
+./scripts/quick_check.sh
 ```
+
+#### 常用命令
+
+```bash
+# Ruff - 代码检查和格式化
+ruff check ankigen/          # 检查
+ruff check --fix ankigen/    # 自动修复
+ruff format ankigen/         # 格式化
+
+# MyPy - 类型检查
+mypy ankigen/
+
+# Bandit - 安全扫描
+bandit -r ankigen/
+
+# Safety - 依赖扫描
+safety check
+```
+
+详细使用说明请参考：
+- [TOOLS_QUICK_START.md](TOOLS_QUICK_START.md) - 快速参考
+- [DEVELOPMENT.md](DEVELOPMENT.md) - 详细开发指南
 
 ## 常见问题
 

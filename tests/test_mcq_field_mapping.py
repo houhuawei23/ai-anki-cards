@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ankigen.core.exporter import ItemsTXTExporter, ItemsYAMLExporter, ItemsWithTypeTXTExporter
+from ankigen.core.exporter import ItemsTXTExporter, ItemsWithTypeTXTExporter, ItemsYAMLExporter
 from ankigen.core.field_mapper import map_card_to_fields
 from ankigen.models.card import MCQCard, MCQOption
 
@@ -115,7 +115,7 @@ class TestMCQFieldMapping:
 
         assert output_path.exists()
         content = output_path.read_text(encoding="utf-8")
-        
+
         # 验证关键字段存在且不为空
         assert "Question:" in content
         assert "测试问题？" in content
@@ -148,7 +148,7 @@ class TestMCQFieldMapping:
 
         assert output_path.exists()
         content = output_path.read_text(encoding="utf-8")
-        
+
         # 验证列名包含所有 MCQ 字段
         assert "Question" in content
         assert "OptionA" in content
@@ -156,7 +156,7 @@ class TestMCQFieldMapping:
         assert "OptionC" in content
         assert "Answer" in content
         assert "Note" in content
-        
+
         # 验证数据行包含内容（不是全空）
         lines = content.split("\n")
         data_lines = [line for line in lines if line and not line.startswith("#")]
@@ -184,14 +184,14 @@ class TestMCQFieldMapping:
 
         assert output_path.exists()
         content = output_path.read_text(encoding="utf-8")
-        
+
         # 验证列名包含所有 MCQ 字段
         assert "Question" in content
         assert "OptionA" in content
         assert "OptionB" in content
         assert "Answer" in content
         assert "Note" in content
-        
+
         # 验证数据行包含内容
         lines = content.split("\n")
         data_lines = [line for line in lines if line and not line.startswith("#")]

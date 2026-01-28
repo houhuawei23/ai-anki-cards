@@ -6,40 +6,42 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ankigen.core.template_loader import get_template_meta, get_template_dir
-from ankigen.core.card_generator import CardGenerator
-from ankigen.models.card import CardType
+from ankigen.core.card_factory import CardFactory  # noqa: E402
+from ankigen.core.template_loader import get_template_dir, get_template_meta  # noqa: E402
+from ankigen.models.card import CardType  # noqa: E402
+
 
 def test_template_loading():
     """测试模板加载"""
-    print("=== 测试模板加载 ===")
-    
+    print("=== 测试模板加载 ===")  # noqa: T201
+
     # 测试 MCQ 模板目录
     mcq_dir = get_template_dir(CardType.MCQ)
-    print(f"MCQ 模板目录: {mcq_dir}")
+    print(f"MCQ 模板目录: {mcq_dir}")  # noqa: T201
     assert mcq_dir is not None, "MCQ 模板目录不存在"
     assert mcq_dir.name == "MCQ-Card", f"模板目录名称错误: {mcq_dir.name}"
-    
+
     # 测试 MCQ 模板元信息
     mcq_meta = get_template_meta(CardType.MCQ)
     assert mcq_meta is not None, "未找到 MCQ 模板元信息"
-    print(f"MCQ 模板名称: {mcq_meta.name}")
-    print(f"MCQ 模板字段数: {len(mcq_meta.fields)}")
-    print(f"MCQ 模板字段: {mcq_meta.fields}")
-    
+    print(f"MCQ 模板名称: {mcq_meta.name}")  # noqa: T201
+    print(f"MCQ 模板字段数: {len(mcq_meta.fields)}")  # noqa: T201
+    print(f"MCQ 模板字段: {mcq_meta.fields}")  # noqa: T201
+
     # 验证字段
     expected_fields = ["Question", "OptionA", "OptionB", "Answer", "Tags"]
     for field in expected_fields:
         assert field in mcq_meta.fields, f"缺少字段: {field}"
-    
-    print("✓ 模板加载测试通过\n")
+
+    print("✓ 模板加载测试通过\n")  # noqa: T201
+
 
 def test_card_creation():
     """测试卡片创建"""
-    print("=== 测试卡片创建 ===")
-    
-    generator = CardGenerator.__new__(CardGenerator)
-    
+    print("=== 测试卡片创建 ===")  # noqa: T201
+
+    card_factory = CardFactory()
+
     # 测试新格式的 MCQ 卡片数据（多选题）
     mcq_data = {
         "Question": "以下哪些是Python的特点？",
@@ -51,24 +53,24 @@ def test_card_creation():
         "Note": "Python是解释型语言，也是动态类型语言",
         "Tags": ["编程", "Python"],
     }
-    
-    card = generator._create_card_from_data(mcq_data, "mcq")
+
+    card = card_factory.create_card_from_data(mcq_data, "mcq")
     assert card is not None, "MCQ卡片创建失败"
-    print(f"✓ MCQ卡片创建成功")
-    print(f"  问题: {card.front}")
-    print(f"  选项数: {len(card.options)}")
-    
+    print("✓ MCQ卡片创建成功")  # noqa: T201
+    print(f"  问题: {card.front}")  # noqa: T201
+    print(f"  选项数: {len(card.options)}")  # noqa: T201
+
     correct_count = 0
     for i, opt in enumerate(card.options):
         correct = "✓" if opt.is_correct else "○"
-        print(f"  {correct} {chr(65+i)}: {opt.text}")
+        print(f"  {correct} {chr(65+i)}: {opt.text}")  # noqa: T201
         if opt.is_correct:
             correct_count += 1
-    
+
     assert correct_count == 2, f"正确答案数量错误: {correct_count}，应该是2"
     assert card.explanation == "Python是解释型语言，也是动态类型语言"
     assert len(card.tags) == 2
-    
+
     # 测试单选题
     mcq_data_single = {
         "Question": "Python是什么类型的语言？",
@@ -79,22 +81,24 @@ def test_card_creation():
         "Note": "Python是解释型语言",
         "Tags": ["编程"],
     }
-    
-    card_single = generator._create_card_from_data(mcq_data_single, "mcq")
+
+    card_single = card_factory.create_card_from_data(mcq_data_single, "mcq")
     assert card_single is not None, "单选题创建失败"
     correct_count_single = sum(1 for opt in card_single.options if opt.is_correct)
     assert correct_count_single == 1, f"单选题正确答案数量错误: {correct_count_single}"
-    print(f"✓ 单选题创建成功，正确答案数: {correct_count_single}")
-    
-    print("✓ 卡片创建测试通过\n")
+    print(f"✓ 单选题创建成功，正确答案数: {correct_count_single}")  # noqa: T201
+
+    print("✓ 卡片创建测试通过\n")  # noqa: T201
+
 
 if __name__ == "__main__":
     try:
         test_template_loading()
         test_card_creation()
-        print("=== 所有测试通过 ===")
+        print("=== 所有测试通过 ===")  # noqa: T201
     except Exception as e:
-        print(f"✗ 测试失败: {e}")
+        print(f"✗ 测试失败: {e}")  # noqa: T201
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ankigen.core.card_generator import CardGenerator, PromptTemplate
-from ankigen.core.response_parser import ResponseParser
+from ankigen.core.card_deduplicator import CardDeduplicator
 from ankigen.core.card_factory import CardFactory
 from ankigen.core.card_filter import CardFilter
-from ankigen.core.card_deduplicator import CardDeduplicator
+from ankigen.core.card_generator import CardGenerator, PromptTemplate
+from ankigen.core.response_parser import ResponseParser
 from ankigen.models.card import BasicCard, CardType, MCQCard
 from ankigen.models.config import GenerationConfig, LLMConfig, LLMProvider
 
@@ -51,7 +51,7 @@ class TestPromptTemplate:
 class TestCardGenerator:
     """卡片生成器测试"""
 
-    @pytest.fixture
+    @pytest.fixture()
     def llm_config(self):
         """创建LLM配置"""
         return LLMConfig(
@@ -60,7 +60,7 @@ class TestCardGenerator:
             api_key="test_key",
         )
 
-    @pytest.fixture
+    @pytest.fixture()
     def generator(self, llm_config):
         """创建卡片生成器"""
         return CardGenerator(llm_config)
@@ -78,7 +78,9 @@ class TestCardGenerator:
                 ]
             }
         )
-        cards = generator.response_parser.parse_response(response_new, "basic", generator.card_factory)
+        cards = generator.response_parser.parse_response(
+            response_new, "basic", generator.card_factory
+        )
         assert len(cards) == 1
         assert isinstance(cards[0], BasicCard)
         assert cards[0].front == "问题1"
@@ -136,7 +138,7 @@ class TestCardGenerator:
         chunks = generator._chunk_content_for_cards(very_long_content, total_very_long)
         assert len(chunks) >= 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate_cards(self, generator):
         """测试生成卡片（使用mock）"""
         # Mock LLM响应
@@ -170,7 +172,7 @@ class TestCardGenerator:
 
             config = GenerationConfig(card_type="basic", card_count=2)
             result = await generator.generate_cards("测试内容", config)
-            
+
             # 现在返回 (cards, stats) 元组
             if isinstance(result, tuple):
                 cards, stats = result

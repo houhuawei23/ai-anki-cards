@@ -95,7 +95,7 @@ def load_yaml_config(config_path: Path) -> Dict[str, Any]:
     if not config_path.exists():
         raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config_dict = yaml.safe_load(f)
 
     if not config_dict:
@@ -120,7 +120,7 @@ def get_default_config_path() -> Path:
 def find_project_root(start_path: Optional[Path] = None) -> Optional[Path]:
     """
     查找项目根目录
-    
+
     通过查找包含 .git、setup.py、pyproject.toml 或 README.md 的目录来确定项目根目录。
     如果找不到，则返回当前工作目录。
 
@@ -132,18 +132,18 @@ def find_project_root(start_path: Optional[Path] = None) -> Optional[Path]:
     """
     if start_path is None:
         start_path = Path(__file__).parent.parent.parent
-    
+
     current = Path(start_path).resolve()
-    
+
     # 查找包含项目标识文件的目录
     markers = [".git", "setup.py", "pyproject.toml", "README.md", "README.rst"]
-    
+
     while current != current.parent:
         for marker in markers:
             if (current / marker).exists():
                 return current
         current = current.parent
-    
+
     # 如果找不到，返回起始目录
     return Path(start_path).resolve()
 
@@ -151,7 +151,7 @@ def find_project_root(start_path: Optional[Path] = None) -> Optional[Path]:
 def find_user_config_file() -> Optional[Path]:
     """
     查找用户配置文件 .config.yml
-    
+
     在项目主目录下查找 .config.yml 文件。
 
     Returns:
@@ -176,7 +176,7 @@ def validate_config(config_dict: Dict[str, Any]) -> List[str]:
         警告信息列表
     """
     warnings = []
-    
+
     # 验证 LLM 配置
     if "llm" in config_dict:
         llm = config_dict["llm"]
@@ -192,7 +192,7 @@ def validate_config(config_dict: Dict[str, Any]) -> List[str]:
             timeout = llm["timeout"]
             if not isinstance(timeout, int) or timeout < 1:
                 warnings.append(f"LLM timeout 值 {timeout} 无效，必须 >= 1")
-    
+
     # 验证生成配置
     if "generation" in config_dict:
         gen = config_dict["generation"]
@@ -220,7 +220,7 @@ def validate_config(config_dict: Dict[str, Any]) -> List[str]:
             max_concurrent = gen["max_concurrent_requests"]
             if not isinstance(max_concurrent, int) or max_concurrent < 1:
                 warnings.append(f"max_concurrent_requests 值 {max_concurrent} 无效，必须 >= 1")
-    
+
     # 验证导出配置
     if "export" in config_dict:
         exp = config_dict["export"]
@@ -230,7 +230,7 @@ def validate_config(config_dict: Dict[str, Any]) -> List[str]:
                 warnings.append(
                     f"export format '{exp['format']}' 无效，必须是以下之一: {valid_formats}"
                 )
-    
+
     return warnings
 
 
@@ -273,10 +273,10 @@ def load_config(
         user_config_file = find_user_config_file()
         if user_config_file:
             logger.info(f"发现用户配置文件: {user_config_file}")
-    
+
     # 3. 合并配置：默认配置 < .config.yml < 命令行指定的配置文件
     merged_config = default_config.copy()
-    
+
     # 先合并 .config.yml（如果存在）
     if user_config_file:
         try:
@@ -285,7 +285,7 @@ def load_config(
             logger.debug(f"已合并用户配置文件: {user_config_file}")
         except Exception as e:
             logger.warning(f"加载用户配置文件失败: {e}")
-    
+
     # 再合并命令行指定的配置文件（优先级更高）
     if config_path:
         if config_path.exists():
@@ -327,9 +327,9 @@ def _load_from_env() -> Dict[str, Any]:
     从环境变量加载配置
 
     支持的环境变量：
-    - LLM相关: DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, 
+    - LLM相关: DEEPSEEK_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY,
                LLM_PROVIDER, LLM_MODEL_NAME, LLM_BASE_URL, LLM_TEMPERATURE, LLM_MAX_TOKENS
-    - 生成相关: GEN_CARD_TYPE, GEN_CARD_COUNT, GEN_DIFFICULTY, 
+    - 生成相关: GEN_CARD_TYPE, GEN_CARD_COUNT, GEN_DIFFICULTY,
                GEN_MAX_CARDS_PER_REQUEST, GEN_MAX_CONCURRENT_REQUESTS
     - 导出相关: EXPORT_FORMAT, EXPORT_DECK_NAME
 
@@ -350,11 +350,11 @@ def _load_from_env() -> Dict[str, Any]:
     elif os.getenv("ANTHROPIC_API_KEY"):
         llm_config["provider"] = "anthropic"
         llm_config["api_key"] = os.getenv("ANTHROPIC_API_KEY")
-    
+
     # 显式指定provider（优先级高于API密钥推断）
     if os.getenv("LLM_PROVIDER"):
         llm_config["provider"] = os.getenv("LLM_PROVIDER").lower()
-    
+
     if os.getenv("LLM_MODEL_NAME"):
         llm_config["model_name"] = os.getenv("LLM_MODEL_NAME")
     if os.getenv("LLM_BASE_URL"):
@@ -388,12 +388,18 @@ def _load_from_env() -> Dict[str, Any]:
         try:
             generation_config["max_cards_per_request"] = int(os.getenv("GEN_MAX_CARDS_PER_REQUEST"))
         except ValueError:
-            logger.warning(f"无效的 GEN_MAX_CARDS_PER_REQUEST 值: {os.getenv('GEN_MAX_CARDS_PER_REQUEST')}")
+            logger.warning(
+                f"无效的 GEN_MAX_CARDS_PER_REQUEST 值: {os.getenv('GEN_MAX_CARDS_PER_REQUEST')}"
+            )
     if os.getenv("GEN_MAX_CONCURRENT_REQUESTS"):
         try:
-            generation_config["max_concurrent_requests"] = int(os.getenv("GEN_MAX_CONCURRENT_REQUESTS"))
+            generation_config["max_concurrent_requests"] = int(
+                os.getenv("GEN_MAX_CONCURRENT_REQUESTS")
+            )
         except ValueError:
-            logger.warning(f"无效的 GEN_MAX_CONCURRENT_REQUESTS 值: {os.getenv('GEN_MAX_CONCURRENT_REQUESTS')}")
+            logger.warning(
+                f"无效的 GEN_MAX_CONCURRENT_REQUESTS 值: {os.getenv('GEN_MAX_CONCURRENT_REQUESTS')}"
+            )
 
     if generation_config:
         config["generation"] = generation_config

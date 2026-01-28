@@ -15,6 +15,7 @@ from loguru import logger
 from ankigen.core.config_loader import load_model_info
 from ankigen.core.providers.base import BaseLLMProvider
 from ankigen.core.providers.openai_compatible import OpenAICompatibleProvider
+from ankigen.exceptions import LLMProviderError
 from ankigen.models.config import LLMConfig, LLMProvider
 
 
@@ -36,7 +37,7 @@ class OpenAIProvider(OpenAICompatibleProvider):
     def _add_provider_specific_params(self, payload: dict) -> None:
         """
         添加OpenAI特定的参数
-        
+
         Args:
             payload: 请求负载字典
         """
@@ -53,7 +54,7 @@ class DeepSeekProvider(OpenAICompatibleProvider):
     def __init__(self, config: LLMConfig):
         """
         初始化DeepSeek提供商
-        
+
         Args:
             config: LLM配置对象
         """
@@ -64,7 +65,7 @@ class DeepSeekProvider(OpenAICompatibleProvider):
     def _load_json_output_config(self) -> bool:
         """
         从 model_info.yml 加载 functions.json_output 配置
-        
+
         Returns:
             如果配置为 true 则返回 True，否则返回 False
         """
@@ -97,7 +98,7 @@ class DeepSeekProvider(OpenAICompatibleProvider):
     def _add_provider_specific_params(self, payload: dict) -> None:
         """
         添加DeepSeek特定的参数
-        
+
         Args:
             payload: 请求负载字典
         """
@@ -117,9 +118,7 @@ class OllamaProvider(BaseLLMProvider):
         """获取Ollama默认API URL"""
         return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-    async def generate(
-        self, prompt: str, system_prompt: Optional[str] = None
-    ) -> str:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """使用Ollama API生成文本"""
         url = f"{self.base_url}/api/generate"
 
@@ -147,39 +146,46 @@ class OllamaProvider(BaseLLMProvider):
         )
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload) as response:
-                    if response.status != 200:
-                        try:
-                            error_text = await response.text()
-                        except Exception:
-                            error_text = f"无法读取错误响应 (状态码 {response.status})"
-                        raise Exception(
-                            f"Ollama API错误 (状态码 {response.status}): {error_text}"
-                        )
-
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+                url, json=payload
+            ) as response:
+                if response.status != 200:
                     try:
-                        data = await response.json()
-                        if "response" not in data:
-                            error_msg = data.get("error", "未知错误") if "error" in data else "响应中没有response字段"
-                            raise Exception(f"Ollama API返回错误: {error_msg}")
-                        return data.get("response", "")
-                    except KeyError as e:
-                        error_msg = f"响应格式错误，缺少字段: {e}"
-                        logger.error(f"{error_msg}，响应数据: {data if 'data' in locals() else '无法获取'}")
-                        raise Exception(error_msg)
-                    except asyncio.TimeoutError as e:
-                        raise Exception(f"读取响应超时: {e}")
-                    except aiohttp.ClientError as e:
-                        raise Exception(f"连接错误: {e}")
-                    except json.JSONDecodeError as e:
-                        error_text = await response.text() if 'response' in locals() else "无法读取响应"
-                        logger.error(f"JSON解析失败: {e}，响应内容: {error_text[:500]}")
-                        raise Exception(f"响应JSON解析失败: {e}")
+                        error_text = await response.text()
+                    except Exception:
+                        error_text = f"无法读取错误响应 (状态码 {response.status})"
+                    raise LLMProviderError(
+                        f"Ollama API错误 (状态码 {response.status}): {error_text}"
+                    )
+
+                try:
+                    data = await response.json()
+                    if "response" not in data:
+                        error_msg = (
+                            data.get("error", "未知错误")
+                            if "error" in data
+                            else "响应中没有response字段"
+                        )
+                        raise LLMProviderError(f"Ollama API返回错误: {error_msg}")
+                    return data.get("response", "")
+                except KeyError as e:
+                    error_msg = f"响应格式错误，缺少字段: {e}"
+                    logger.error(
+                        f"{error_msg}，响应数据: {data if 'data' in locals() else '无法获取'}"
+                    )
+                    raise LLMProviderError(error_msg) from e
+                except asyncio.TimeoutError as e:
+                    raise LLMProviderError(f"读取响应超时: {e}") from e
+                except aiohttp.ClientError as e:
+                    raise LLMProviderError(f"连接错误: {e}") from e
+                except json.JSONDecodeError as e:
+                    error_text = await response.text() if "response" in locals() else "无法读取响应"
+                    logger.error(f"JSON解析失败: {e}，响应内容: {error_text[:500]}")
+                    raise LLMProviderError(f"响应JSON解析失败: {e}") from e
         except asyncio.TimeoutError as e:
-            raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}")
+            raise LLMProviderError(f"请求超时 (超时时间: {self.config.timeout}秒): {e}") from e
         except aiohttp.ClientError as e:
-            raise Exception(f"HTTP客户端错误: {e}")
+            raise LLMProviderError(f"HTTP客户端错误: {e}") from e
         except Exception as e:
             # 捕获所有其他异常并记录详细信息
             logger.exception(f"Ollama API调用失败: {e}")
@@ -242,9 +248,7 @@ class LLMEngine:
 
         return provider_class(self.config)
 
-    async def generate(
-        self, prompt: str, system_prompt: Optional[str] = None
-    ) -> str:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
         生成文本
 

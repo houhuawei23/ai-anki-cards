@@ -11,12 +11,11 @@ import typer
 from loguru import logger
 
 from ankigen.core.exporter import (
-    _add_type_count_suffix,
     export_api_responses,
     export_cards,
     export_parsed_cards_json,
 )
-from ankigen.core.card_generator import GenerationStats
+from ankigen.core.stats import GenerationStats
 from ankigen.models.card import Card
 from ankigen.models.config import AppConfig
 
@@ -24,11 +23,11 @@ from ankigen.models.config import AppConfig
 def determine_output_dir(output: Path, all_formats: bool) -> Path:
     """
     确定输出目录
-    
+
     Args:
         output: 输出路径
         all_formats: 是否导出所有格式
-        
+
     Returns:
         输出目录路径
     """
@@ -62,14 +61,14 @@ def export_all_formats(
 ) -> List[Path]:
     """
     导出所有格式
-    
+
     Args:
         cards: 卡片列表
         output: 输出路径
         input_path: 输入路径（用于确定基础文件名）
         app_config: 应用配置
         stats: 生成统计信息（可选）
-        
+
     Returns:
         已导出的文件路径列表
     """
@@ -78,19 +77,13 @@ def export_all_formats(
         # 如果输出路径是已存在的目录
         output_dir = Path(output)
         # 使用输入文件名作为基础名，如果没有输入文件则使用默认名
-        if input_path.is_file():
-            output_stem = input_path.stem
-        else:
-            output_stem = "items"
+        output_stem = input_path.stem if input_path.is_file() else "items"
     elif not output.suffix:
         # 如果输出路径没有扩展名（可能是目录名）
         output_dir = Path(output)
         output_dir.mkdir(parents=True, exist_ok=True)
         # 使用输入文件名作为基础名，如果没有输入文件则使用默认名
-        if input_path.is_file():
-            output_stem = input_path.stem
-        else:
-            output_stem = "items"
+        output_stem = input_path.stem if input_path.is_file() else "items"
     else:
         # 如果输出路径有扩展名，使用输出路径的目录和基础名
         output_stem = output.stem
@@ -127,9 +120,7 @@ def export_all_formats(
 
     # 导出 API 响应 JSON（如果存在）
     if stats and stats.api_responses:
-        api_output_file = (
-            output_dir / f"{output_stem}.api_response.json"
-        )
+        api_output_file = output_dir / f"{output_stem}.api_response.json"
         try:
             export_api_responses(
                 api_responses=stats.api_responses,
@@ -151,9 +142,7 @@ def export_all_formats(
             with open(prompt_output_file, "w", encoding="utf-8") as f:
                 for i, prompt in enumerate(stats.prompts, 1):
                     if len(stats.prompts) > 1:
-                        f.write(
-                            f"# 提示词 {i}/{len(stats.prompts)}\n\n"
-                        )
+                        f.write(f"# 提示词 {i}/{len(stats.prompts)}\n\n")
                     f.write("```\n")
                     f.write(prompt)
                     f.write("\n```\n")
@@ -181,9 +170,7 @@ def export_all_formats(
         logger.error(f"导出解析后的卡片 JSON 失败: {e}")
         typer.echo(f"  ✗ parsed_cards: 导出失败 - {e}", err=True)
 
-    typer.echo(
-        f"\n✓ 成功导出 {len(exported_files)} 种格式到 {output_dir}"
-    )
+    typer.echo(f"\n✓ 成功导出 {len(exported_files)} 种格式到 {output_dir}")
     return exported_files
 
 
@@ -195,7 +182,7 @@ def export_single_format(
 ) -> None:
     """
     导出单一格式
-    
+
     Args:
         cards: 卡片列表
         output: 输出路径
@@ -214,9 +201,7 @@ def export_single_format(
     # 导出 API 响应 JSON（如果存在）
     if stats and stats.api_responses:
         # 使用输出路径的目录和基础名
-        api_output_file = (
-            output.parent / f"{output.stem}.api_response.json"
-        )
+        api_output_file = output.parent / f"{output.stem}.api_response.json"
         try:
             export_api_responses(
                 api_responses=stats.api_responses,

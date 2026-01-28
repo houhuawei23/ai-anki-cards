@@ -2,8 +2,9 @@
 文件解析器测试
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from ankigen.core.parser import BatchProcessor, MarkdownParser, TextParser
 
@@ -109,9 +110,10 @@ class TestBatchProcessor:
         chunks = processor.chunk_content(content, max_tokens=100)
         # 如果内容足够长，应该能分块
         assert len(chunks) >= 1
-        
+
         # 验证每个块都不超过限制（允许一定误差）
         from ankigen.utils.token_counter import TokenCounter
+
         token_counter = TokenCounter()
         for chunk in chunks:
             tokens = token_counter.count(chunk)

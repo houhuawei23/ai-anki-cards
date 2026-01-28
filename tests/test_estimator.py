@@ -3,14 +3,15 @@
 """
 
 import math
-import pytest
 from pathlib import Path
 
+import pytest
+
 from ankigen.core.estimator import (
-    ResourceEstimator,
-    ModelInfo,
     CardTypeMetrics,
     ChunkingStrategy,
+    ModelInfo,
+    ResourceEstimator,
     create_estimator_from_config,
 )
 from ankigen.models.config import LLMConfig, LLMProvider
@@ -66,7 +67,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         assert estimator.estimate_tokens("basic", 10) == 1500
         assert estimator.estimate_tokens("basic", 1) == 150
 
@@ -84,14 +85,14 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         assert estimator.estimate_tokens("mcq", 10) == 5000
         assert estimator.estimate_tokens("mcq", 1) == 500
 
     def test_estimate_tokens_default_fallback(self):
         """测试默认值回退"""
         estimator = ResourceEstimator(None)
-        
+
         # 应该使用默认值
         assert estimator.estimate_tokens("basic", 10) == 1500
         assert estimator.estimate_tokens("mcq", 10) == 5000
@@ -110,7 +111,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         assert estimator.estimate_time("basic", 10) == 50.0
         assert estimator.estimate_time("basic", 1) == 5.0
 
@@ -128,7 +129,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         assert estimator.estimate_time("mcq", 10) == 150.0
         assert estimator.estimate_time("mcq", 1) == 15.0
 
@@ -146,7 +147,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         # 应该返回4000（默认值，不超过maximum）
         assert estimator.get_max_tokens_for_request("basic") == 4000
 
@@ -164,7 +165,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         # 应该返回2000（不超过default）
         assert estimator.get_max_tokens_for_request("basic") == 2000
 
@@ -182,7 +183,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         # 10张basic卡片：10 * 150 = 1500 tokens，小于4000，应该1次生成
         strategy = estimator.calculate_optimal_chunks(10, "basic")
         assert strategy.num_chunks == 1
@@ -203,7 +204,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         # 20张mcq卡片：20 * 500 = 10000 tokens
         # 10000 / 4000 = 2.5，向上取整 = 3次
         strategy = estimator.calculate_optimal_chunks(20, "mcq")
@@ -226,7 +227,7 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         # 100张mcq卡片：100 * 500 = 50000 tokens
         # 50000 / 4000 = 12.5，向上取整 = 13次
         strategy = estimator.calculate_optimal_chunks(100, "mcq")
@@ -248,10 +249,10 @@ class TestResourceEstimator:
             card_metrics=card_metrics,
         )
         estimator = ResourceEstimator(model_info)
-        
+
         content = "这是一段测试内容" * 100
         result = estimator.estimate_for_generation(content, "basic", 10)
-        
+
         assert result["total_tokens"] == 1500
         assert result["total_time"] == 50.0
         assert isinstance(result["strategy"], ChunkingStrategy)
@@ -265,7 +266,8 @@ class TestCreateEstimatorFromConfig:
         """测试从配置创建估算器（有model_info.yml）"""
         # 创建临时的model_info.yml
         model_info_file = tmp_path / "model_info.yml"
-        model_info_file.write_text("""
+        model_info_file.write_text(
+            """
 models:
   deepseek-chat:
     provider: deepseek
@@ -281,23 +283,25 @@ models:
       mcq:
         avg_time_per_card: 15.0
         avg_tokens_per_card: 500
-""")
-        
+"""
+        )
+
         # 修改load_model_info函数以使用临时文件
         from ankigen.core import config_loader
+
         original_load = config_loader.load_model_info
-        
+
         def mock_load(path=None):
             if path is None:
                 return config_loader.load_yaml_config(model_info_file)
             return original_load(path)
-        
+
         # 创建配置
         llm_config = LLMConfig(
             provider=LLMProvider.DEEPSEEK,
             model_name="deepseek-chat",
         )
-        
+
         # 由于load_model_info的查找逻辑比较复杂，这里直接测试ResourceEstimator的解析功能
         estimator = ResourceEstimator()
         # 如果model_info.yml存在，应该能加载
@@ -311,7 +315,7 @@ models:
             provider=LLMProvider.DEEPSEEK,
             model_name="deepseek-chat",
         )
-        
+
         estimator = create_estimator_from_config(llm_config)
         assert estimator is not None
         # 应该使用默认值

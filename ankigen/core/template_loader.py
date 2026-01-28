@@ -89,7 +89,7 @@ def load_template_meta(template_dir: Path) -> Optional[TemplateMeta]:
         return None
 
     try:
-        with open(meta_file, "r", encoding="utf-8") as f:
+        with open(meta_file, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         if not data:

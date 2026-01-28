@@ -12,13 +12,14 @@ import aiohttp
 from loguru import logger
 
 from ankigen.core.providers.base import BaseLLMProvider
+from ankigen.exceptions import LLMProviderError
 from ankigen.models.config import LLMConfig
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
     """
     OpenAI兼容API提供商基类
-    
+
     提供OpenAI兼容API的公共实现，包括：
     - 消息构建
     - 请求负载构建
@@ -29,7 +30,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def __init__(self, config: LLMConfig):
         """
         初始化OpenAI兼容提供商
-        
+
         Args:
             config: LLM配置对象
         """
@@ -39,7 +40,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def _get_provider_name(self) -> str:
         """
         获取提供商名称（用于错误消息）
-        
+
         Returns:
             提供商名称
         """
@@ -50,11 +51,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     ) -> List[Dict[str, str]]:
         """
         构建消息列表
-        
+
         Args:
             prompt: 用户提示词
             system_prompt: 系统提示词
-            
+
         Returns:
             消息列表
         """
@@ -71,11 +72,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     ) -> Dict:
         """
         构建请求负载
-        
+
         Args:
             messages: 消息列表
             stream: 是否启用流式输出
-            
+
         Returns:
             请求负载字典
         """
@@ -86,30 +87,29 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             "max_tokens": self.config.max_tokens,
             "top_p": self.config.top_p,
         }
-        
+
         if stream:
             payload["stream"] = True
-        
+
         # 添加提供商特定的参数
         self._add_provider_specific_params(payload)
-        
+
         return payload
 
     def _add_provider_specific_params(self, payload: Dict) -> None:
         """
         添加提供商特定的参数（子类可覆盖）
-        
+
         Args:
             payload: 请求负载字典
         """
         # 默认实现：不添加任何特定参数
         # 子类可以覆盖此方法来添加特定参数
-        pass
 
     def _build_headers(self) -> Dict[str, str]:
         """
         构建请求头
-        
+
         Returns:
             请求头字典
         """
@@ -121,7 +121,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def _get_timeout(self) -> aiohttp.ClientTimeout:
         """
         获取超时配置
-        
+
         Returns:
             超时配置对象
         """
@@ -131,18 +131,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             sock_read=self.config.timeout,
         )
 
-    async def _handle_response(
-        self, response: aiohttp.ClientResponse
-    ) -> str:
+    async def _handle_response(self, response: aiohttp.ClientResponse) -> str:
         """
         处理HTTP响应
-        
+
         Args:
             response: HTTP响应对象
-            
+
         Returns:
             生成的文本内容
-            
+
         Raises:
             Exception: 如果响应状态码不是200或响应格式错误
         """
@@ -163,37 +161,33 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     if "error" in data
                     else "响应中没有choices字段"
                 )
-                raise Exception(f"{self.provider_name} API返回错误: {error_msg}")
+                raise LLMProviderError(f"{self.provider_name} API返回错误: {error_msg}")
             return data["choices"][0]["message"]["content"]
         except KeyError as e:
             error_msg = f"响应格式错误，缺少字段: {e}"
-            logger.error(
-                f"{error_msg}，响应数据: {data if 'data' in locals() else '无法获取'}"
-            )
-            raise Exception(error_msg)
+            logger.error(f"{error_msg}，响应数据: {data if 'data' in locals() else '无法获取'}")
+            raise LLMProviderError(error_msg) from e
         except asyncio.TimeoutError as e:
-            raise Exception(f"读取响应超时: {e}")
+            raise LLMProviderError(f"读取响应超时: {e}") from e
         except aiohttp.ClientError as e:
-            raise Exception(f"连接错误: {e}")
+            raise LLMProviderError(f"连接错误: {e}") from e
         except json.JSONDecodeError as e:
-            error_text = (
-                await response.text() if "response" in locals() else "无法读取响应"
-            )
+            error_text = await response.text() if "response" in locals() else "无法读取响应"
             logger.error(f"JSON解析失败: {e}，响应内容: {error_text[:500]}")
-            raise Exception(f"响应JSON解析失败: {e}")
+            raise LLMProviderError(f"响应JSON解析失败: {e}") from e
 
     async def _parse_stream_response(
         self, response: aiohttp.ClientResponse
     ) -> AsyncIterator[Tuple[str, int]]:
         """
         解析流式响应（SSE格式）
-        
+
         Args:
             response: HTTP响应对象
-            
+
         Yields:
             (文本片段, 累计token数) 元组
-            
+
         Raises:
             Exception: 如果响应状态码不是200
         """
@@ -238,19 +232,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     # 忽略无效的 JSON 行
                     continue
 
-    async def generate(
-        self, prompt: str, system_prompt: Optional[str] = None
-    ) -> str:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
         生成文本（异步）
-        
+
         Args:
             prompt: 用户提示词
             system_prompt: 系统提示词
-            
+
         Returns:
             生成的文本
-            
+
         Raises:
             ValueError: 如果API密钥未设置
             Exception: 如果API调用失败
@@ -265,13 +257,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         timeout = self._get_timeout()
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=headers, json=payload) as response:
-                    return await self._handle_response(response)
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+                url, headers=headers, json=payload
+            ) as response:
+                return await self._handle_response(response)
         except asyncio.TimeoutError as e:
-            raise Exception(
-                f"请求超时 (超时时间: {self.config.timeout}秒): {e}"
-            )
+            raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}")
         except aiohttp.ClientError as e:
             raise Exception(f"HTTP客户端错误: {e}")
         except Exception as e:
@@ -284,14 +275,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     ) -> AsyncIterator[Tuple[str, int]]:
         """
         流式生成文本
-        
+
         Args:
             prompt: 用户提示词
             system_prompt: 系统提示词
-            
+
         Yields:
             (文本片段, 累计token数) 元组
-            
+
         Raises:
             ValueError: 如果API密钥未设置
             Exception: 如果API调用失败
@@ -306,13 +297,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         timeout = self._get_timeout()
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=headers, json=payload) as response:
-                    async for chunk in self._parse_stream_response(response):
-                        yield chunk
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+                url, headers=headers, json=payload
+            ) as response:
+                async for chunk in self._parse_stream_response(response):
+                    yield chunk
         except asyncio.TimeoutError as e:
-            raise Exception(
-                f"请求超时 (超时时间: {self.config.timeout}秒): {e}"
-            )
+            raise Exception(f"请求超时 (超时时间: {self.config.timeout}秒): {e}")
         except aiohttp.ClientError as e:
             raise Exception(f"HTTP客户端错误: {e}")

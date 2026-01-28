@@ -4,30 +4,28 @@
 负责显示生成统计信息和计算花费。
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
-
-from typing import TYPE_CHECKING
 
 from ankigen.core.config_loader import load_model_info
 from ankigen.models.config import LLMConfig
 
 if TYPE_CHECKING:
-    from ankigen.core.card_generator import GenerationStats
+    from ankigen.core.stats import GenerationStats
 
 
 class StatsDisplay:
     """
     统计显示器类
-    
+
     负责显示生成统计信息和计算API调用花费。
     """
 
     def __init__(self, llm_config: LLMConfig):
         """
         初始化统计显示器
-        
+
         Args:
             llm_config: LLM配置对象
         """
@@ -44,7 +42,7 @@ class StatsDisplay:
         """
         if card_count == 0:
             return
-        
+
         logger.info("=" * 60)
         logger.info("生成统计信息:")
         logger.info(f"  输入 Token 数: {stats.input_tokens:,}")
@@ -58,7 +56,7 @@ class StatsDisplay:
         logger.info(f"  生成速度: {stats.tokens_per_second:.2f} tokens/秒")
         logger.info(f"  每张卡片平均 Token: {stats.output_tokens / card_count:.1f}")
         logger.info(f"  每张卡片平均用时: {stats.total_time / card_count:.2f} 秒")
-        
+
         # 计算并显示花费
         cost = self.calculate_cost(stats)
         if cost is not None:
@@ -66,41 +64,41 @@ class StatsDisplay:
             logger.info(f"  每张卡片平均花费: ¥{cost / card_count:.4f}")
         else:
             logger.debug("  未找到定价配置，跳过花费计算")
-        
+
         logger.info("=" * 60)
 
     def calculate_cost(self, stats: "GenerationStats") -> Optional[float]:
         """
         计算 API 调用花费（人民币）
-        
+
         Args:
             stats: 统计信息
-            
+
         Returns:
             花费金额（人民币），如果配置不存在则返回 None
         """
         if not self._pricing_config:
             return None
-        
+
         # 计算输入 token 花费（区分 cache hit 和 cache miss）
         input_cache_miss_tokens = stats.input_cache_miss_tokens
         input_cache_hit_tokens = stats.input_cache_hit_tokens
-        
+
         input_cost = (
-            input_cache_miss_tokens / 1_000_000 * self._pricing_config["input"] +
-            input_cache_hit_tokens / 1_000_000 * self._pricing_config["input_cache_hit"]
+            input_cache_miss_tokens / 1_000_000 * self._pricing_config["input"]
+            + input_cache_hit_tokens / 1_000_000 * self._pricing_config["input_cache_hit"]
         )
-        
+
         # 计算输出 token 花费
         output_cost = stats.output_tokens / 1_000_000 * self._pricing_config["output"]
-        
+
         total_cost = input_cost + output_cost
         return total_cost
 
     def _load_pricing_config(self) -> Optional[dict]:
         """
         从 model_info.yml 加载 pricing_per_million_tokens 配置
-        
+
         Returns:
             包含 input, input_cache_hit, output 键的字典，如果未找到则返回 None
         """

@@ -5,7 +5,6 @@
 """
 
 import hashlib
-import json
 import pickle
 from pathlib import Path
 from typing import Any, Optional
@@ -44,7 +43,7 @@ class FileCache:
             缓存键（hash值）
         """
         hash_obj = hashlib.sha256()
-        hash_obj.update(f"{prefix}:{content}".encode("utf-8"))
+        hash_obj.update(f"{prefix}:{content}".encode())
         return hash_obj.hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
@@ -82,7 +81,7 @@ class FileCache:
 
         try:
             with open(cache_path, "rb") as f:
-                data = pickle.load(f)
+                data = pickle.load(f)  # nosec B301  # 内部缓存，安全可控
             logger.debug(f"Cache hit: {cache_key[:8]}")
             return data
         except Exception as e:

@@ -9,6 +9,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Optional, Tuple
 
+import aiohttp
 from loguru import logger
 
 from ankigen.core.config_loader import load_model_info
@@ -60,7 +61,6 @@ class BaseLLMProvider(ABC):
         Returns:
             API密钥
         """
-        pass
 
     @abstractmethod
     def _get_default_base_url(self) -> str:
@@ -70,12 +70,9 @@ class BaseLLMProvider(ABC):
         Returns:
             基础URL
         """
-        pass
 
     @abstractmethod
-    async def generate(
-        self, prompt: str, system_prompt: Optional[str] = None
-    ) -> str:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
         生成文本（异步）
 
@@ -86,7 +83,6 @@ class BaseLLMProvider(ABC):
         Returns:
             生成的文本
         """
-        pass
 
     async def generate_stream(
         self, prompt: str, system_prompt: Optional[str] = None
@@ -110,7 +106,7 @@ class BaseLLMProvider(ABC):
     def _load_token_per_character_config(self) -> Optional[dict]:
         """
         从 model_info.yml 加载 token_per_character 配置
-        
+
         Returns:
             包含 english 和 chinese 键的字典，如果未找到则返回 None
         """
@@ -135,22 +131,22 @@ class BaseLLMProvider(ABC):
     def _estimate_tokens(self, text: str) -> int:
         """
         估算文本的 token 数
-        
+
         优先使用 model_info.yml 中的配置：
         - 如果配置存在：使用配置中的 token_per_character 值
         - 如果配置不存在：使用默认启发式方法（中文字符约 1.5 字符/token，其他字符约 4 字符/token）
-        
+
         Args:
             text: 文本内容
-            
+
         Returns:
             估算的 token 数
         """
         # 统计中文字符数（CJK统一汉字）
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
         # 统计其他字符数
         other_chars = len(text) - chinese_chars
-        
+
         # 如果配置存在，使用配置值
         if self._token_per_char_config:
             chinese_token_ratio = self._token_per_char_config.get("chinese", 0.6)
@@ -161,12 +157,10 @@ class BaseLLMProvider(ABC):
         else:
             # 默认启发式方法：中文字符按 1.5 字符/token，其他字符按 4 字符/token
             estimated = int(chinese_chars / 1.5 + other_chars / 4)
-        
+
         return max(estimated, 1)  # 至少返回 1
 
-    async def generate_with_retry(
-        self, prompt: str, system_prompt: Optional[str] = None
-    ) -> str:
+    async def generate_with_retry(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
         带重试的文本生成
 
@@ -188,7 +182,7 @@ class BaseLLMProvider(ABC):
                 # 网络错误和超时错误应该重试
                 last_error = e
                 if attempt < self.config.max_retries:
-                    wait_time = 2 ** attempt  # 指数退避
+                    wait_time = 2**attempt  # 指数退避
                     error_msg = str(e)
                     if isinstance(e, asyncio.TimeoutError):
                         error_msg = f"超时错误: {error_msg}"
@@ -208,7 +202,7 @@ class BaseLLMProvider(ABC):
                 # 其他未知错误也重试
                 last_error = e
                 if attempt < self.config.max_retries:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         f"生成失败 (尝试 {attempt + 1}/{self.config.max_retries + 1}): {error_msg}"
                     )

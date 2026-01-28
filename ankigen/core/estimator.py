@@ -7,8 +7,7 @@
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from loguru import logger
 
@@ -67,7 +66,7 @@ class ResourceEstimator:
                 models = model_info_dict.get("models", {})
                 if models:
                     # 默认使用第一个模型
-                    model_name = list(models.keys())[0]
+                    model_name = next(iter(models.keys()))
                     model_data = models[model_name]
                     return ResourceEstimator._parse_model_info(model_data)
         except Exception as e:

@@ -4,7 +4,7 @@ Token计算模块
 使用tiktoken计算文本的token数量，支持多种模型编码。
 """
 
-from typing import Optional
+from typing import ClassVar
 
 import tiktoken
 
@@ -17,7 +17,7 @@ class TokenCounter:
     """
 
     # 模型编码映射
-    MODEL_ENCODINGS = {
+    MODEL_ENCODINGS: ClassVar[dict[str, str]] = {
         # OpenAI模型
         "gpt-4": "cl100k_base",
         "gpt-4-turbo": "cl100k_base",
@@ -76,7 +76,7 @@ class TokenCounter:
         tokens = 0
         for message in messages:
             tokens += extra_tokens_per_message
-            for key, value in message.items():
+            for _key, value in message.items():
                 tokens += self.count(str(value))
         tokens += 3  # 回复助手消息的额外token
         return tokens

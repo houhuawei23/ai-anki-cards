@@ -21,16 +21,14 @@ from ankigen.models.card import (
 class CardFactory:
     """
     卡片工厂类
-    
+
     负责从数据字典创建不同类型的卡片对象。
     """
 
-    def create_card_from_data(
-        self, card_data: dict, card_type: str
-    ) -> Optional[Card]:
+    def create_card_from_data(self, card_data: dict, card_type: str) -> Optional[Card]:
         """
         从数据字典创建卡片对象
-        
+
         支持从模板字段名称（如 "Front", "Back", "Text", "Tags"）映射到Card对象字段
 
         Args:
@@ -54,10 +52,10 @@ class CardFactory:
     def _create_basic_card(self, card_data: dict) -> Optional[BasicCard]:
         """
         创建Basic卡片
-        
+
         Args:
             card_data: 卡片数据字典
-            
+
         Returns:
             BasicCard对象
         """
@@ -69,7 +67,7 @@ class CardFactory:
         back = back.replace("\n", "<br>") if back else ""
         # 支持 "Tags"/"tags" 字段
         tags = card_data.get("Tags") or card_data.get("tags", [])
-        
+
         return BasicCard(
             front=front,
             back=back,
@@ -80,10 +78,10 @@ class CardFactory:
     def _create_cloze_card(self, card_data: dict) -> Optional[ClozeCard]:
         """
         创建Cloze卡片
-        
+
         Args:
             card_data: 卡片数据字典
-            
+
         Returns:
             ClozeCard对象，如果缺少必要字段则返回None
         """
@@ -109,10 +107,10 @@ class CardFactory:
     def _create_mcq_card(self, card_data: dict) -> Optional[MCQCard]:
         """
         创建MCQ卡片
-        
+
         Args:
             card_data: 卡片数据字典
-            
+
         Returns:
             MCQCard对象，如果缺少必要字段则返回None
         """
@@ -120,10 +118,10 @@ class CardFactory:
         front = card_data.get("Question") or card_data.get("Front") or card_data.get("front", "")
         # 将换行符替换为 HTML <br>
         front = front.replace("\n", "<br>") if front else ""
-        
+
         # 支持新的格式：OptionA-F 字段
         options = self._parse_mcq_options(card_data)
-        
+
         if not options:
             logger.warning("MCQ卡片缺少选项")
             return None
@@ -137,14 +135,12 @@ class CardFactory:
         tags = card_data.get("Tags") or card_data.get("tags", [])
         # 支持 "Note"/"Explanation"/"explanation" 字段
         explanation = (
-            card_data.get("Note")
-            or card_data.get("Explanation")
-            or card_data.get("explanation")
+            card_data.get("Note") or card_data.get("Explanation") or card_data.get("explanation")
         )
         # 将换行符替换为 HTML <br>
         if explanation:
             explanation = explanation.replace("\n", "<br>")
-        
+
         # 提取 NoteA-F 字段并存储到 metadata 中
         metadata = card_data.get("metadata", {})
         option_letters = ["A", "B", "C", "D", "E", "F"]
@@ -167,16 +163,16 @@ class CardFactory:
     def _parse_mcq_options(self, card_data: dict) -> list[MCQOption]:
         """
         解析MCQ选项
-        
+
         Args:
             card_data: 卡片数据字典
-            
+
         Returns:
             MCQOption列表
         """
         options = []
         option_letters = ["A", "B", "C", "D", "E", "F"]
-        
+
         # 首先尝试新格式（OptionA-F）
         has_new_format = False
         for letter in option_letters:
@@ -190,7 +186,7 @@ class CardFactory:
                 answer = card_data.get("Answer", "").strip().upper()
                 is_correct = letter in answer
                 options.append(MCQOption(text=option_value, is_correct=is_correct))
-        
+
         # 如果没有新格式，尝试 Options 数组格式
         if not has_new_format:
             options_data = card_data.get("Options") or card_data.get("options", [])
@@ -210,5 +206,5 @@ class CardFactory:
                         # 简单格式：字符串列表，第一个是正确答案
                         opt_text = opt_data.replace("\n", "<br>")
                         options.append(MCQOption(text=opt_text, is_correct=len(options) == 0))
-        
+
         return options

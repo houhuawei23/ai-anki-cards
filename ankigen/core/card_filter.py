@@ -14,7 +14,7 @@ from ankigen.models.card import Card, CardType, MCQCard
 class CardFilter:
     """
     卡片过滤器类
-    
+
     负责过滤低质量的卡片。
     """
 
@@ -44,9 +44,8 @@ class CardFilter:
                 if not self._validate_cloze_card(card):
                     continue
 
-            elif card.card_type == CardType.MCQ:
-                if not self._validate_mcq_card(card):
-                    continue
+            elif card.card_type == CardType.MCQ and not self._validate_mcq_card(card):
+                continue
 
             filtered.append(card)
 
@@ -56,49 +55,42 @@ class CardFilter:
     def _validate_basic_card(self, card: Card) -> bool:
         """
         验证Basic卡片
-        
+
         Args:
             card: 卡片对象
-            
+
         Returns:
             如果卡片有效则返回True
         """
-        if not card.back or len(card.back.strip()) == 0:
-            return False
-        return True
+        return not (not card.back or len(card.back.strip()) == 0)
 
     def _validate_cloze_card(self, card: Card) -> bool:
         """
         验证Cloze卡片
-        
+
         Args:
             card: 卡片对象
-            
+
         Returns:
             如果卡片有效则返回True
         """
         # 验证cloze标记
-        if "{{c" not in card.front:
-            return False
-        return True
+        return "{{c" in card.front
 
     def _validate_mcq_card(self, card: Card) -> bool:
         """
         验证MCQ卡片
-        
+
         Args:
             card: 卡片对象
-            
+
         Returns:
             如果卡片有效则返回True
         """
         if not isinstance(card, MCQCard):
             return False
-        
+
         if len(card.options) < 2:
             return False
-        
-        if not card.validate_options():
-            return False
-        
-        return True
+
+        return card.validate_options()

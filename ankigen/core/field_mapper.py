@@ -27,7 +27,7 @@ def map_card_to_fields(card: Card, template_meta: Optional[TemplateMeta] = None)
     if template_meta is None:
         template_meta = get_template_meta(card.card_type)
         if not template_meta:
-            logger.warning(f"无法加载模板元数据，使用默认映射")
+            logger.warning("无法加载模板元数据，使用默认映射")
             return _default_field_mapping(card)
 
     fields = {}
@@ -62,14 +62,14 @@ def map_card_to_fields(card: Card, template_meta: Optional[TemplateMeta] = None)
                     correct_answer_indices.append(i)
                     if not correct_answer_text:
                         correct_answer_text = opt.text
-            
+
             # 映射所有字段
             for field_name in template_meta.fields:
                 if field_name == "Question":
                     fields["Question"] = card.front
                 elif field_name.startswith("Option") and len(field_name) == 7:  # OptionA-F
                     # OptionA, OptionB, OptionC, OptionD, OptionE, OptionF
-                    option_index = ord(field_name[-1]) - ord('A')  # A=0, B=1, C=2, ...
+                    option_index = ord(field_name[-1]) - ord("A")  # A=0, B=1, C=2, ...
                     if 0 <= option_index < len(card.options):
                         fields[field_name] = card.options[option_index].text
                     else:
@@ -77,7 +77,9 @@ def map_card_to_fields(card: Card, template_meta: Optional[TemplateMeta] = None)
                 elif field_name == "Answer":
                     # Answer 字段存储选项字母组合（A, AC, ACE等），支持多选题
                     if correct_answer_indices:
-                        answer_letters = "".join([chr(ord('A') + idx) for idx in correct_answer_indices])
+                        answer_letters = "".join(
+                            [chr(ord("A") + idx) for idx in correct_answer_indices]
+                        )
                         fields["Answer"] = answer_letters
                     else:
                         fields["Answer"] = ""
@@ -93,15 +95,14 @@ def map_card_to_fields(card: Card, template_meta: Optional[TemplateMeta] = None)
                 elif field_name == "Back":
                     # 如果模板有 Back 字段，格式化选项和答案
                     options_text = "\n".join(
-                        [
-                            f"{'✓' if opt.is_correct else '○'} {opt.text}"
-                            for opt in card.options
-                        ]
+                        [f"{'✓' if opt.is_correct else '○'} {opt.text}" for opt in card.options]
                     )
                     explanation = card.explanation or ""
                     # 生成正确答案字母组合
                     if correct_answer_indices:
-                        answer_letters = "".join([chr(ord('A') + idx) for idx in correct_answer_indices])
+                        answer_letters = "".join(
+                            [chr(ord("A") + idx) for idx in correct_answer_indices]
+                        )
                     else:
                         answer_letters = ""
                     back_content = f"{options_text}\n\n正确答案: {answer_letters}"
@@ -207,7 +208,12 @@ def map_fields_to_card(fields: Dict[str, str], card_type: CardType) -> Optional[
             return BasicCard(front=front, back=back, tags=tags)
 
         elif card_type == CardType.CLOZE:
-            text = fields.get("Text") or fields.get("text") or fields.get("Front") or fields.get("front", "")
+            text = (
+                fields.get("Text")
+                or fields.get("text")
+                or fields.get("Front")
+                or fields.get("front", "")
+            )
             tags = _parse_tags(fields.get("Tags") or fields.get("tags", ""))
             if not text:
                 return None
@@ -278,4 +284,3 @@ def _parse_tags(tags_str: str) -> list:
     else:
         # 空格分隔
         return [t.strip() for t in tags_str.split() if t.strip()]
-

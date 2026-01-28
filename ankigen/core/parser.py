@@ -26,7 +26,6 @@ class TextParser:
 
     def __init__(self):
         """初始化文本解析器"""
-        pass
 
     def parse(self, file_path: Path) -> str:
         """
@@ -63,13 +62,13 @@ class TextParser:
 
             # 读取文件
             try:
-                with open(file_path, "r", encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     content = f.read()
             except UnicodeDecodeError:
                 # 如果检测的编码失败，尝试utf-8
                 logger.warning(f"使用{encoding}解码失败，尝试UTF-8")
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, encoding="utf-8") as f:
                         content = f.read()
                 except UnicodeDecodeError as e:
                     logger.exception(f"UTF-8解码也失败: {e}")
@@ -84,8 +83,7 @@ class TextParser:
             except Exception as e:
                 logger.warning(f"文本清理失败: {e}，返回原始内容")
                 # 即使清理失败，也返回原始内容
-                pass
-            
+
             return content
         except FileNotFoundError:
             raise
@@ -118,9 +116,7 @@ class TextParser:
 
         return text.strip()
 
-    def split_into_chunks(
-        self, content: str, max_chars: Optional[int] = None
-    ) -> List[str]:
+    def split_into_chunks(self, content: str, max_chars: Optional[int] = None) -> List[str]:
         """
         将文本分割成块
 
@@ -187,7 +183,7 @@ class MarkdownParser:
 
         # 读取文件
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 post = frontmatter.load(f)
         except PermissionError as e:
             logger.exception(f"文件权限错误: {e}")
@@ -307,9 +303,7 @@ class BatchProcessor:
             logger.warning(f"未知文件类型 {suffix}，按文本文件处理")
             return self.text_parser.parse(file_path)
 
-    def parse_directory(
-        self, directory: Path, merge: bool = True
-    ) -> List[str] | str:
+    def parse_directory(self, directory: Path, merge: bool = True) -> List[str] | str:
         """
         解析目录中的所有文件
 
@@ -352,10 +346,10 @@ class BatchProcessor:
             except Exception as e:
                 logger.exception(f"解析文件失败 {file_path}: {e}")
                 failed_files.append(str(file_path))
-        
+
         if failed_files:
             logger.warning(f"有 {len(failed_files)} 个文件解析失败: {', '.join(failed_files)}")
-        
+
         if not contents and failed_files:
             raise Exception(f"所有文件解析失败，共 {len(failed_files)} 个文件")
 
@@ -396,7 +390,7 @@ class BatchProcessor:
 
         for para in paragraphs:
             para_tokens = token_counter.count(para)
-            
+
             # 如果单个段落就超过限制，需要进一步分割
             if para_tokens > max_tokens:
                 # 先保存当前块
@@ -404,9 +398,9 @@ class BatchProcessor:
                     chunks.append("\n\n".join(current_chunk))
                     current_chunk = []
                     current_tokens = 0
-                
+
                 # 按句子分割长段落
-                sentences = re.split(r'[。！？\n]', para)
+                sentences = re.split(r"[。！？\n]", para)
                 for sentence in sentences:
                     if not sentence.strip():
                         continue
@@ -450,9 +444,7 @@ def parse_file(file_path: Path) -> str:
     return processor.parse_file(file_path)
 
 
-def parse_directory(
-    directory: Path, recursive: bool = True, merge: bool = True
-) -> str | List[str]:
+def parse_directory(directory: Path, recursive: bool = True, merge: bool = True) -> str | List[str]:
     """
     解析目录的便捷函数
 

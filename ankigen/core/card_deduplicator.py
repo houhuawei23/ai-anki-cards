@@ -14,7 +14,7 @@ from ankigen.models.card import Card
 class CardDeduplicator:
     """
     卡片去重器类
-    
+
     负责去除重复的卡片（基于正面内容）。
     """
 

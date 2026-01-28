@@ -11,11 +11,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from ankigen.cli import generate
-from ankigen.core.card_generator import CardGenerator
-from ankigen.models.config import LLMConfig, LLMProvider
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_txt_file(tmp_path):
     """创建示例txt文件"""
     file_path = tmp_path / "sample.txt"
@@ -23,7 +21,7 @@ def sample_txt_file(tmp_path):
     return file_path
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_llm_response():
     """Mock LLM响应"""
     return json.dumps(
@@ -42,15 +40,15 @@ def mock_llm_response():
 class TestCLI:
     """CLI集成测试"""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate_basic_flow(self, sample_txt_file, tmp_path, mock_llm_response):
         """测试基本生成流程"""
         output_path = tmp_path / "output.apkg"
 
         # 直接测试核心功能，不依赖CLI
         from ankigen.core.card_generator import CardGenerator
-        from ankigen.core.parser import parse_file
         from ankigen.core.exporter import export_cards
+        from ankigen.core.parser import parse_file
         from ankigen.models.config import GenerationConfig, LLMConfig, LLMProvider
 
         # 解析文件
@@ -78,10 +76,10 @@ class TestCLI:
 
             config = GenerationConfig(card_type="basic", card_count=1)
             result = await generator.generate_cards(content, config)
-            
+
             # 现在返回 (cards, stats) 元组
             if isinstance(result, tuple):
-                cards, stats = result
+                cards, _stats = result
             else:
                 cards = result
 

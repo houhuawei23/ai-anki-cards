@@ -5,13 +5,13 @@
 """
 
 import asyncio
+import json
 import sys
 import time
+import uuid
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import List, Optional
 
-from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
 
 from ankigen.core.card_deduplicator import CardDeduplicator
@@ -20,127 +20,15 @@ from ankigen.core.card_filter import CardFilter
 from ankigen.core.content_chunker import ContentChunker
 from ankigen.core.estimator import create_estimator_from_config
 from ankigen.core.llm_engine import LLMEngine
+from ankigen.core.prompt_template import PromptTemplate
 from ankigen.core.response_parser import ResponseParser
+from ankigen.core.stats import GenerationStats
 from ankigen.core.stats_display import StatsDisplay
 from ankigen.core.tags_loader import load_tags_file
-from ankigen.core.template_loader import get_template_dir
-from ankigen.models.card import Card, CardType
+from ankigen.exceptions import CardGenerationError, TemplateError
+from ankigen.models.card import Card
 from ankigen.models.config import GenerationConfig, LLMConfig
 from ankigen.utils.cache import FileCache
-
-
-@dataclass
-class GenerationStats:
-    """生成统计信息"""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_time: float = 0.0
-    api_responses: List[str] = field(default_factory=list)  # 保存 API 响应 JSON
-    input_cache_hit_tokens: int = 0  # cache hit 的输入 token 数
-    prompts: List[str] = field(default_factory=list)  # 保存生成的提示词
-    
-    @property
-    def total_tokens(self) -> int:
-        """总 token 数"""
-        return self.input_tokens + self.output_tokens
-    
-    @property
-    def avg_time_per_token(self) -> float:
-        """平均每 token 用时（秒）"""
-        if self.total_tokens == 0:
-            return 0.0
-        return self.total_time / self.total_tokens
-    
-    @property
-    def tokens_per_second(self) -> float:
-        """每秒生成的 token 数"""
-        if self.total_time == 0:
-            return 0.0
-        return self.output_tokens / self.total_time
-    
-    @property
-    def input_cache_miss_tokens(self) -> int:
-        """cache miss 的输入 token 数"""
-        return self.input_tokens - self.input_cache_hit_tokens
-
-
-class PromptTemplate:
-    """提示词模板管理器"""
-
-    def __init__(self):
-        """
-        初始化模板管理器
-        
-        模板现在从 cards_templates 目录下的各个卡片类型目录中加载 prompt.j2
-        """
-        self.base_dir = Path(__file__).parent.parent / "cards_templates"
-        self.env = Environment(
-            loader=FileSystemLoader(str(self.base_dir)),
-            trim_blocks=True,
-            lstrip_blocks=True,
-        )
-
-    def render(
-        self,
-        template_name: str,
-        content: str,
-        card_count: int,
-        difficulty: str = "medium",
-        custom_prompt: Optional[str] = None,
-        basic_tags: Optional[List[str]] = None,
-        optional_tags: Optional[List[str]] = None,
-    ) -> str:
-        """
-        渲染模板
-
-        Args:
-            template_name: 卡片类型名称（basic/cloze/mcq）
-            content: 要生成卡片的内容
-            card_count: 卡片数量
-            difficulty: 难度级别
-            custom_prompt: 自定义提示词，如果提供则覆盖模板
-
-        Returns:
-            渲染后的提示词
-        """
-        if custom_prompt:
-            # 使用自定义提示词，但仍需要注入变量
-            template = Template(custom_prompt)
-            return template.render(
-                content=content,
-                card_count=card_count,
-                difficulty=difficulty,
-                basic_tags=basic_tags or [],
-                optional_tags=optional_tags or [],
-            )
-
-        # 根据卡片类型确定模板目录
-        card_type = CardType(template_name)
-        template_dir = get_template_dir(card_type)
-        
-        if not template_dir:
-            raise FileNotFoundError(
-                f"未找到卡片类型 {template_name} 的模板目录。"
-                f"请确保 cards_templates/{template_name}/prompt.j2 文件存在"
-            )
-
-        # 加载 prompt.j2 文件
-        template_path = template_dir / "prompt.j2"
-        if not template_path.exists():
-            logger.warning(f"模板文件不存在: {template_path}")
-            raise FileNotFoundError(f"模板文件不存在: {template_path}")
-
-        # 使用相对路径加载模板
-        relative_path = template_path.relative_to(self.base_dir)
-        template = self.env.get_template(str(relative_path))
-
-        return template.render(
-            content=content,
-            card_count=card_count,
-            difficulty=difficulty,
-            basic_tags=basic_tags or [],
-            optional_tags=optional_tags or [],
-        )
 
 
 class CardGenerator:
@@ -166,7 +54,7 @@ class CardGenerator:
         self.estimator = create_estimator_from_config(llm_config)
         # 用于保护 stdout 写入的锁（避免并发输出混乱）
         self._stdout_lock = asyncio.Lock()
-        
+
         # 初始化各个组件
         self.response_parser = ResponseParser()
         self.card_factory = CardFactory()
@@ -205,7 +93,7 @@ class CardGenerator:
                 optional_tags = tags_data.get("optional_tags", [])
             except Exception as e:
                 logger.warning(f"加载标签文件失败: {e}，将不使用标签限制")
-        
+
         # 检查缓存
         if self.cache:
             cache_key = f"{config.card_type}:{config.card_count}:{content[:100]}"
@@ -227,27 +115,21 @@ class CardGenerator:
                     if isinstance(cached_result, (list, tuple)):
                         empty_stats = GenerationStats()
                         return list(cached_result), empty_stats
-                    raise ValueError(f"无法处理缓存格式: {type(cached_result)}")
+                    raise CardGenerationError(f"无法处理缓存格式: {type(cached_result)}")
 
         # 确定目标卡片数量
-        if config.card_count:
-            target_card_count = config.card_count
-        else:
-            target_card_count = self._estimate_total_card_count(content)
+        target_card_count = config.card_count or self._estimate_total_card_count(content)
 
         # 使用资源估算器计算最优切分策略
-        strategy = self.estimator.calculate_optimal_chunks(
-            target_card_count, config.card_type
-        )
+        strategy = self.estimator.calculate_optimal_chunks(target_card_count, config.card_type)
 
         # 从配置读取最大并发数
-        MAX_CONCURRENT_REQUESTS = config.max_concurrent_requests
+        max_concurrent_requests = config.max_concurrent_requests
 
         # 如果策略要求切分（num_chunks > 1），需要切分内容多次生成
         if strategy.num_chunks > 1:
             logger.info(
-                f"目标卡片数量 {target_card_count}，"
-                f"将切分内容并分 {strategy.num_chunks} 次并发生成"
+                f"目标卡片数量 {target_card_count}，将切分内容并分 {strategy.num_chunks} 次并发生成"
             )
 
             # 切分内容（使用策略中的cards_per_chunk）
@@ -274,7 +156,10 @@ class CardGenerator:
                     )
                     tasks.append(
                         self._generate_cards_single(
-                            chunk, config, cards_per_chunk, output_dir,
+                            chunk,
+                            config,
+                            cards_per_chunk,
+                            output_dir,
                             max_tokens=strategy.max_tokens_per_request,
                             task_id=i,  # 传递任务编号
                             basic_tags=basic_tags,
@@ -283,8 +168,10 @@ class CardGenerator:
                     )
 
             # 并发执行所有任务（使用信号量控制并发数）
-            logger.info(f"开始并发生成 {len(tasks)} 个任务（最大并发数: {MAX_CONCURRENT_REQUESTS}）")
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+            logger.info(
+                f"开始并发生成 {len(tasks)} 个任务（最大并发数: {max_concurrent_requests}）"
+            )
+            semaphore = asyncio.Semaphore(max_concurrent_requests)
 
             async def bounded_generate(coro):
                 """使用信号量限制并发的包装函数"""
@@ -299,7 +186,7 @@ class CardGenerator:
                 )
             except Exception as e:
                 logger.exception(f"并发执行任务失败: {e}")
-                raise Exception(f"并发执行任务失败: {e}")
+                raise CardGenerationError(f"并发执行任务失败: {e}") from e
 
             # 收集结果并处理错误
             all_cards = []
@@ -308,8 +195,11 @@ class CardGenerator:
                 if isinstance(result, Exception):
                     logger.error(f"第 {i} 个块生成失败: {result}")
                     import traceback
-                    if hasattr(result, '__traceback__'):
-                        logger.debug(f"第 {i} 个块错误详情:\n{traceback.format_exception(type(result), result, result.__traceback__)}")
+
+                    if hasattr(result, "__traceback__"):
+                        logger.debug(
+                            f"第 {i} 个块错误详情:\n{traceback.format_exception(type(result), result, result.__traceback__)}"
+                        )
                     continue
                 elif isinstance(result, tuple) and len(result) == 2:
                     cards, stats = result
@@ -332,9 +222,7 @@ class CardGenerator:
             if config.enable_deduplication:
                 all_cards = self.card_deduplicator.deduplicate(all_cards)
 
-            logger.info(
-                f"成功生成 {len(all_cards)} 张卡片（并发执行 {len(tasks)} 个任务）"
-            )
+            logger.info(f"成功生成 {len(all_cards)} 张卡片（并发执行 {len(tasks)} 个任务）")
 
             # 保存到缓存（保存 cards 和 stats 的元组）
             if self.cache:
@@ -355,12 +243,15 @@ class CardGenerator:
             # 单次生成即可
             card_count = min(target_card_count, strategy.cards_per_chunk)
             cards, stats = await self._generate_cards_single(
-                content, config, card_count, output_dir,
+                content,
+                config,
+                card_count,
+                output_dir,
                 max_tokens=strategy.max_tokens_per_request,
                 basic_tags=basic_tags,
                 optional_tags=optional_tags,
             )
-            
+
             # 保存到缓存（保存 cards 和 stats 的元组）
             if self.cache:
                 cache_key = f"{config.card_type}:{config.card_count}:{content[:100]}"
@@ -371,7 +262,7 @@ class CardGenerator:
                 cached_stats.total_time = stats.total_time
                 cached_stats.input_cache_hit_tokens = stats.input_cache_hit_tokens
                 self.cache.set(cache_key, (cards, cached_stats), prefix="cards")
-            
+
             # 显示统计信息
             self.stats_display.display(stats, len(cards))
             return cards, stats
@@ -403,7 +294,7 @@ class CardGenerator:
         """
         stats = GenerationStats()
         start_time = time.time()
-        
+
         # 渲染提示词
         try:
             prompt = self.template_manager.render(
@@ -417,12 +308,12 @@ class CardGenerator:
             )
             # 保存提示词到统计信息
             stats.prompts.append(prompt)
-        except FileNotFoundError as e:
-            logger.error(f"模板文件未找到: {e}")
-            raise Exception(f"模板文件未找到: {e}。请检查卡片类型 '{config.card_type}' 的模板是否存在")
+        except TemplateError as e:
+            logger.error(f"模板错误: {e}")
+            raise CardGenerationError(f"模板错误: {e}") from e
         except Exception as e:
             logger.exception(f"渲染提示词失败: {e}")
-            raise Exception(f"渲染提示词失败: {e}")
+            raise CardGenerationError(f"渲染提示词失败: {e}") from e
 
         # 估算输入 token 数
         try:
@@ -446,15 +337,17 @@ class CardGenerator:
             response_parts = []
             last_token_count = 0
             last_display_time = time.time()
-            
+
             try:
                 async for chunk, token_count in self.llm_engine.stream_generate(prompt):
                     response_parts.append(chunk)
                     # 每增加10个token或每0.5秒更新一次显示
                     current_time = time.time()
-                    if (token_count - last_token_count >= 10 or 
-                        current_time - last_display_time >= 0.5 or 
-                        token_count < 50):
+                    if (
+                        token_count - last_token_count >= 10
+                        or current_time - last_display_time >= 0.5
+                        or token_count < 50
+                    ):
                         # 使用锁保护 stdout 写入，避免并发输出混乱
                         async with self._stdout_lock:
                             # 使用 sys.stdout.write 实现实时更新（覆盖同一行）
@@ -463,7 +356,7 @@ class CardGenerator:
                             sys.stdout.flush()
                         last_token_count = token_count
                         last_display_time = current_time
-                
+
                 # 换行，结束进度显示
                 async with self._stdout_lock:
                     finish_msg = f"{task_prefix}已接收 {last_token_count} tokens，解析响应中..."
@@ -487,7 +380,7 @@ class CardGenerator:
                         stats.output_tokens = len(response) // 4  # 简单估算
                 except Exception as e2:
                     logger.exception(f"LLM生成失败: {e2}")
-                    raise Exception(f"LLM生成失败: {e2}。请检查API配置和网络连接")
+                    raise CardGenerationError(f"LLM生成失败: {e2}。请检查API配置和网络连接") from e2
         finally:
             # 恢复原始的max_tokens
             if original_max_tokens is not None:
@@ -504,12 +397,17 @@ class CardGenerator:
         if output_dir:
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
-                import uuid
                 timestamp = int(time.time())
-                api_response_file = output_dir / f"api_response_{timestamp}_{uuid.uuid4().hex[:8]}.json"
-                import json
+                api_response_file = (
+                    output_dir / f"api_response_{timestamp}_{uuid.uuid4().hex[:8]}.json"
+                )
                 with open(api_response_file, "w", encoding="utf-8") as f:
-                    json.dump({"response": response, "response_count": len(stats.api_responses)}, f, ensure_ascii=False, indent=2)
+                    json.dump(
+                        {"response": response, "response_count": len(stats.api_responses)},
+                        f,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
                 logger.info(f"已立即保存 API 响应到: {api_response_file}")
             except PermissionError as e:
                 logger.error(f"保存 API 响应失败（权限错误）: {e}")
@@ -519,11 +417,14 @@ class CardGenerator:
         # 解析响应（加强错误处理）
         cards = []
         try:
-            cards = self.response_parser.parse_response(response, config.card_type, self.card_factory)
+            cards = self.response_parser.parse_response(
+                response, config.card_type, self.card_factory
+            )
         except Exception as e:
             logger.error(f"解析响应失败: {e}")
             logger.error(f"响应内容预览: {response[:500]}")
             import traceback
+
             logger.debug(f"详细错误信息: {traceback.format_exc()}")
             # 即使解析失败，也返回空列表，不抛出异常
 
@@ -537,6 +438,7 @@ class CardGenerator:
         except Exception as e:
             logger.warning(f"质量过滤失败: {e}，跳过过滤")
             import traceback
+
             logger.debug(f"详细错误信息: {traceback.format_exc()}")
 
         # 去重（加强错误处理）
@@ -549,6 +451,7 @@ class CardGenerator:
         except Exception as e:
             logger.warning(f"去重失败: {e}，跳过去重")
             import traceback
+
             logger.debug(f"详细错误信息: {traceback.format_exc()}")
 
         # 限制数量
@@ -561,7 +464,7 @@ class CardGenerator:
             logger.warning(f"API 响应预览: {response[:500]}")
         else:
             logger.info(f"成功生成 {len(cards)} 张卡片")
-        
+
         return cards, stats
 
     def _estimate_card_count(self, content: str) -> int:
@@ -608,4 +511,3 @@ class CardGenerator:
         保留此方法以保持向后兼容性。
         """
         return self.content_chunker.chunk_for_cards(content, target_card_count, max_cards_per_chunk)
-

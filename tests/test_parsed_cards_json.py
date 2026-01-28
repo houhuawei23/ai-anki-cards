@@ -26,6 +26,7 @@ class TestParsedCardsJSONExporter:
 
         assert output_path.exists()
         import json
+
         data = json.loads(output_path.read_text(encoding="utf-8"))
 
         assert "cards" in data
@@ -62,6 +63,7 @@ class TestParsedCardsJSONExporter:
 
         assert output_path.exists()
         import json
+
         data = json.loads(output_path.read_text(encoding="utf-8"))
 
         assert "cards" in data
@@ -104,6 +106,7 @@ class TestParsedCardsJSONExporter:
         exporter.export(cards, output_path)
 
         import json
+
         data = json.loads(output_path.read_text(encoding="utf-8"))
         card = data["cards"][0]
 

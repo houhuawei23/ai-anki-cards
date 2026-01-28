@@ -140,5 +140,7 @@ class TestExportCards:
         cards = [BasicCard(front="问题", back="答案")]
         output_path = tmp_path / "output.apkg"
 
-        export_cards(cards, output_path, format="apkg", deck_name="Test", add_type_count_suffix=False)
+        export_cards(
+            cards, output_path, format="apkg", deck_name="Test", add_type_count_suffix=False
+        )
         assert output_path.exists()

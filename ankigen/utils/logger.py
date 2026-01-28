@@ -47,10 +47,7 @@ def setup_logger(
 
     # 文件输出格式（更详细）
     file_format = (
-        "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
-        "{level: <8} | "
-        "{name}:{function}:{line} | "
-        "{message}"
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}"
     )
 
     # 设置控制台输出
@@ -71,11 +68,11 @@ def setup_logger(
         project_root = Path(__file__).parent.parent.parent
         logs_dir = project_root / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 使用时间戳创建日志文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         actual_log_file = logs_dir / f"ankigen_{timestamp}.log"
-    
+
     if actual_log_file:
         actual_log_file = Path(actual_log_file)
         try:
@@ -95,7 +92,7 @@ def setup_logger(
         except Exception as e:
             logger.warning(f"无法创建日志文件 {actual_log_file}: {e}")
             return None
-    
+
     return None
 
 

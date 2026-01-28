@@ -20,22 +20,37 @@
 
 3. **安装依赖**
    ```bash
-   pip install -r requirements.txt
-   pip install -e .  # 开发模式安装
+   pip install -e ".[dev]"  # 安装所有依赖和开发工具
+   # 或分别安装
+   pip install -e .           # 基础依赖
+   pip install -e ".[lint]"   # 代码质量工具
+   pip install -e ".[security]" # 安全扫描工具
    ```
 
-4. **安装开发依赖**
+4. **设置 Pre-commit Hooks（推荐）**
    ```bash
-   pip install pytest pytest-asyncio pytest-mock black isort
+   pre-commit install
    ```
 
 ## 代码规范
 
+### 代码质量工具
+
+项目使用以下工具确保代码质量：
+
+- **Ruff**: 代码检查和格式化（替代 flake8 + isort + black）
+- **MyPy**: 静态类型检查
+- **Pydocstyle**: 文档字符串检查
+- **Bandit**: 安全漏洞扫描
+- **Safety**: 依赖漏洞扫描
+
+详细使用方法请参考 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
 ### 代码风格
 
-- 使用**Black**进行代码格式化（行长度100）
-- 使用**isort**进行导入排序
+- 使用**Ruff**进行代码格式化和检查（行长度100）
 - 遵循PEP 8规范
+- 使用 Google 风格的文档字符串
 
 ### 类型提示
 
@@ -94,10 +109,10 @@ def test_function_name():
     """测试函数描述"""
     # Arrange
     input_data = "test"
-    
+
     # Act
     result = function_to_test(input_data)
-    
+
     # Assert
     assert result == expected_value
 ```

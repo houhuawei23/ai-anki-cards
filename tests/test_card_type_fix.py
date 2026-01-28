@@ -30,9 +30,9 @@ class TestCardTypeValue:
         """测试添加类型后缀（枚举类型）"""
         cards = [BasicCard(front="问题", back="答案")]
         output_path = tmp_path / "test.txt"
-        
+
         result_path = _add_type_count_suffix(output_path, cards)
-        
+
         assert result_path.name == "test.basic.1.txt"
 
     def test_add_type_count_suffix_with_string(self, tmp_path):
@@ -41,12 +41,12 @@ class TestCardTypeValue:
         card = BasicCard(front="问题", back="答案")
         # 模拟 Pydantic 的 use_enum_values=True 行为
         card.card_type = "basic"  # type: ignore
-        
+
         cards = [card]
         output_path = tmp_path / "test.txt"
-        
+
         result_path = _add_type_count_suffix(output_path, cards)
-        
+
         assert result_path.name == "test.basic.1.txt"
 
     def test_export_with_string_card_type(self, tmp_path):
@@ -54,10 +54,10 @@ class TestCardTypeValue:
         card = BasicCard(front="问题", back="答案")
         # 模拟 Pydantic 的 use_enum_values=True 行为
         card.card_type = "basic"  # type: ignore
-        
+
         cards = [card]
         output_path = tmp_path / "test.csv"
-        
+
         # 应该不会抛出 AttributeError
         export_cards(cards, output_path, format="csv", add_type_count_suffix=False)
         assert output_path.exists()

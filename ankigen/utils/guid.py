@@ -36,8 +36,8 @@ def generate_guid(fields: Dict[str, str], template_name: str, exclude_tags: bool
     # 合并所有内容
     content = "|".join(content_parts)
 
-    # 生成MD5哈希
-    hash_obj = hashlib.md5(content.encode("utf-8"))
+    # 生成MD5哈希（非安全用途，仅用于生成GUID）
+    hash_obj = hashlib.md5(content.encode("utf-8"), usedforsecurity=False)  # nosec B324
     guid = hash_obj.hexdigest()[:8]  # 使用前8位作为GUID
 
     return guid

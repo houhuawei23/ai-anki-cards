@@ -1,0 +1,22 @@
+# 包含必要的非 Python 文件
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+include DEVELOPMENT.md
+include TOOLS_QUICK_START.md
+include pyproject.toml
+include sample_config.yaml
+include model_info.yml
+
+# 包含模板文件
+recursive-include ankigen/cards_templates *
+recursive-include ankigen/config *
+
+# 排除不需要的目录
+global-exclude logs/*
+global-exclude output/*
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *$py.class
+global-exclude .git*
+global-exclude *.log

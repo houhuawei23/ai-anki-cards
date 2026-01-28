@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import genanki
-import yaml
 from loguru import logger
 
 from ankigen.core.exporter_utils import (
@@ -23,6 +22,7 @@ from ankigen.core.exporter_utils import (
 )
 from ankigen.core.field_mapper import get_template_name, map_card_to_fields
 from ankigen.core.template_loader import get_template_meta
+from ankigen.exceptions import ExportError
 from ankigen.models.card import Card, CardType, MCQCard
 from ankigen.utils.guid import generate_guid_from_card_fields
 
@@ -76,7 +76,7 @@ class APKGExporter(BaseExporter):
         try:
             # 确保输出目录存在
             ensure_output_dir(output_path)
-            
+
             # 生成牌组ID
             if deck_id is None:
                 deck_id = random.randrange(1 << 30, 1 << 31)
@@ -105,7 +105,7 @@ class APKGExporter(BaseExporter):
 
             if added_count == 0:
                 logger.error("没有成功添加任何卡片")
-                raise Exception("没有成功添加任何卡片，请检查卡片数据格式")
+                raise ExportError("没有成功添加任何卡片，请检查卡片数据格式")
 
             # 生成包
             package = genanki.Package(deck)
@@ -114,10 +114,14 @@ class APKGExporter(BaseExporter):
             logger.info(f"已导出 {added_count}/{len(cards)} 张卡片到 {output_path}")
         except PermissionError as e:
             logger.exception(f"导出APKG失败（权限错误）: {e}")
-            raise Exception(f"导出APKG失败（权限错误）: 无法写入文件 {output_path}。请检查文件权限")
+            raise ExportError(
+                f"导出APKG失败（权限错误）: 无法写入文件 {output_path}。请检查文件权限"
+            ) from e
+        except ExportError:
+            raise
         except Exception as e:
             logger.exception(f"导出APKG失败: {e}")
-            raise Exception(f"导出APKG失败: {e}。请检查卡片数据和输出路径")
+            raise ExportError(f"导出APKG失败: {e}。请检查卡片数据和输出路径") from e
 
     def _create_models(self) -> dict:
         """
@@ -205,7 +209,9 @@ class APKGExporter(BaseExporter):
 
             if card.card_type == CardType.BASIC:
                 if not card.front or not card.back:
-                    logger.warning(f"Basic卡片缺少必要字段: front={bool(card.front)}, back={bool(card.back)}")
+                    logger.warning(
+                        f"Basic卡片缺少必要字段: front={bool(card.front)}, back={bool(card.back)}"
+                    )
                     return None
                 return genanki.Note(
                     model=model,
@@ -229,7 +235,7 @@ class APKGExporter(BaseExporter):
                         logger.warning(f"MCQ卡片缺少必要字段: front={bool(card.front)}")
                         return None
                     if not card.options:
-                        logger.warning(f"MCQ卡片缺少选项")
+                        logger.warning("MCQ卡片缺少选项")
                         return None
                     # 格式化选项
                     options_html = "<ul>"
@@ -404,7 +410,7 @@ class ItemsYAMLExporter(BaseExporter):
             # 添加Tags字段（如果存在）
             if "Tags" in fields or "标签" in fields:
                 field_names.append("Tags" if "Tags" in fields else "标签")
-            
+
             for field_name in field_names:
                 value = fields.get(field_name, "")
                 # YAML格式：Field: value（需要转义特殊字符）
@@ -530,10 +536,7 @@ class ParsedCardsJSONExporter(BaseExporter):
             parsed_cards.append(fields)
 
         # 构建 JSON 数据结构
-        json_data = {
-            "cards": parsed_cards,
-            "card_count": len(cards)
-        }
+        json_data = {"cards": parsed_cards, "card_count": len(cards)}
 
         # 保存为格式化的 JSON 文件
         with open(output_path, "w", encoding="utf-8") as f:
@@ -545,12 +548,7 @@ class ParsedCardsJSONExporter(BaseExporter):
 class APIResponseExporter(BaseExporter):
     """API 响应 JSON 导出器"""
 
-    def export(
-        self, 
-        api_responses: List[str], 
-        output_path: Path, 
-        **kwargs
-    ) -> None:
+    def export(self, api_responses: List[str], output_path: Path, **kwargs) -> None:
         """
         导出 API 响应 JSON
 
@@ -567,16 +565,10 @@ class APIResponseExporter(BaseExporter):
 
         # 如果只有一个响应，直接保存
         if len(api_responses) == 1:
-            response_data = {
-                "response": api_responses[0],
-                "response_count": 1
-            }
+            response_data = {"response": api_responses[0], "response_count": 1}
         else:
             # 多个响应，保存为数组
-            response_data = {
-                "responses": api_responses,
-                "response_count": len(api_responses)
-            }
+            response_data = {"responses": api_responses, "response_count": len(api_responses)}
 
         # 保存为 JSON 文件
         with open(output_path, "w", encoding="utf-8") as f:
@@ -606,8 +598,6 @@ class ItemsWithTypeTXTExporter(BaseExporter):
         if not template_meta:
             logger.error(f"无法加载卡片类型 {first_card.card_type} 的模板")
             return
-
-        template_name = template_meta.name
 
         # 构建列名（GUID + Notetype + 字段 + Tags）
         # Tags字段不在meta.yml的Fields中，需要显式添加
@@ -703,7 +693,7 @@ def _add_type_count_suffix(output_path: Path, cards: List[Card]) -> Path:
 def export_cards(
     cards: List[Card],
     output_path: Path,
-    format: str = "apkg",  # noqa: A002
+    format: str = "apkg",
     deck_name: str = "Generated Deck",
     deck_description: str = "",
     add_type_count_suffix: bool = True,
@@ -720,7 +710,7 @@ def export_cards(
         add_type_count_suffix: 是否在文件名中添加类型和数量后缀（默认True）
     """
     export_format = format.lower()
-    
+
     # 格式映射表
     format_map = {
         ".apkg": "apkg",
@@ -729,7 +719,7 @@ def export_cards(
         ".json": "json",
         ".jsonl": "jsonl",
     }
-    
+
     # 如果格式为默认值"apkg"，但文件扩展名不匹配，则根据文件扩展名自动判断
     ext = output_path.suffix.lower()
     if export_format == "apkg" and ext in format_map and format_map[ext] != "apkg":
@@ -794,7 +784,9 @@ def export_cards(
         raise Exception(f"导出失败（权限错误）: 无法写入文件 {final_output_path}。请检查文件权限")
     except FileNotFoundError as e:
         logger.exception(f"导出失败（路径错误）: {e}")
-        raise Exception(f"导出失败（路径错误）: 输出目录不存在或无法创建。请检查路径: {final_output_path.parent}")
+        raise Exception(
+            f"导出失败（路径错误）: 输出目录不存在或无法创建。请检查路径: {final_output_path.parent}"
+        )
     except Exception as e:
         logger.exception(f"导出失败: {e}")
         raise Exception(f"导出失败: {e}。请检查卡片数据和输出路径")
@@ -827,7 +819,9 @@ def export_api_responses(
         # 构建文件名：{stem}.{type}.{count}.api_response.json
         # 如果 output_path 已经是完整路径，使用其 stem
         # 如果是目录，需要构建文件名
-        if output_path.is_dir() or (not output_path.suffix and not output_path.name.endswith('.json')):
+        if output_path.is_dir() or (
+            not output_path.suffix and not output_path.name.endswith(".json")
+        ):
             # 目录或没有扩展名，构建新文件名
             stem = "api_response"
             new_stem = f"{stem}.{card_type}.{card_count}.api_response"
@@ -836,13 +830,15 @@ def export_api_responses(
             # 有扩展名，替换 stem（移除可能的 .api_response 后缀）
             stem = output_path.stem
             # 如果 stem 已经包含 .api_response，先移除
-            if stem.endswith('.api_response'):
+            if stem.endswith(".api_response"):
                 stem = stem[:-13]  # 移除 '.api_response'
             new_stem = f"{stem}.{card_type}.{card_count}.api_response"
             final_output_path = output_path.parent / f"{new_stem}.json"
     elif not output_path.suffix or output_path.suffix != ".json":
         # 如果没有扩展名或扩展名不是 .json，添加 .json
-        if output_path.is_dir() or (not output_path.suffix and not output_path.name.endswith('.json')):
+        if output_path.is_dir() or (
+            not output_path.suffix and not output_path.name.endswith(".json")
+        ):
             final_output_path = output_path / "api_response.json"
         else:
             final_output_path = output_path.with_suffix(".json")
@@ -875,7 +871,9 @@ def export_parsed_cards_json(
     final_output_path = output_path
     if add_type_count_suffix and card_type is not None and card_count is not None:
         # 构建文件名：{stem}.{type}.{count}.parsed.json
-        if output_path.is_dir() or (not output_path.suffix and not output_path.name.endswith('.json')):
+        if output_path.is_dir() or (
+            not output_path.suffix and not output_path.name.endswith(".json")
+        ):
             # 目录或没有扩展名，构建新文件名
             stem = "parsed_cards"
             new_stem = f"{stem}.{card_type}.{card_count}.parsed"
@@ -884,13 +882,15 @@ def export_parsed_cards_json(
             # 有扩展名，替换 stem
             stem = output_path.stem
             # 如果 stem 已经包含 .parsed，先移除
-            if stem.endswith('.parsed'):
+            if stem.endswith(".parsed"):
                 stem = stem[:-7]  # 移除 '.parsed'
             new_stem = f"{stem}.{card_type}.{card_count}.parsed"
             final_output_path = output_path.parent / f"{new_stem}.json"
     elif not output_path.suffix or output_path.suffix != ".json":
         # 如果没有扩展名或扩展名不是 .json，添加 .json
-        if output_path.is_dir() or (not output_path.suffix and not output_path.name.endswith('.json')):
+        if output_path.is_dir() or (
+            not output_path.suffix and not output_path.name.endswith(".json")
+        ):
             final_output_path = output_path / "parsed_cards.json"
         else:
             final_output_path = output_path.with_suffix(".json")

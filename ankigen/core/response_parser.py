@@ -16,19 +16,19 @@ from ankigen.models.card import Card
 class ResponseParser:
     """
     LLM响应解析器
-    
+
     负责从LLM响应中提取JSON数据并解析为卡片对象。
     """
 
     def parse_response(self, response: str, card_type: str, card_factory) -> List[Card]:
         """
         解析LLM响应
-        
+
         Args:
             response: LLM响应文本
             card_type: 卡片类型
             card_factory: 卡片工厂对象，用于创建卡片
-            
+
         Returns:
             卡片列表
         """
@@ -43,7 +43,7 @@ class ResponseParser:
         try:
             # 清理可能的markdown格式
             json_str = self._clean_json_string(json_str)
-            
+
             data = json.loads(json_str)
             cards_data = data.get("cards", [])
 
@@ -66,15 +66,15 @@ class ResponseParser:
     def _extract_json(self, response: str) -> Optional[str]:
         """
         从响应中提取JSON字符串
-        
+
         Args:
             response: LLM响应文本
-            
+
         Returns:
             JSON字符串，如果无法提取则返回None
         """
         json_str = None
-        
+
         # 方法1: 提取代码块中的JSON
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", response, re.DOTALL)
         if json_match:
@@ -89,18 +89,18 @@ class ResponseParser:
                 # 使用栈来匹配括号
                 start_idx = response.find('{"cards"')
                 if start_idx == -1:
-                    start_idx = response.find('{\"cards\"')
+                    start_idx = response.find('{"cards"')
                 if start_idx != -1:
                     brace_count = 0
                     for i in range(start_idx, len(response)):
-                        if response[i] == '{':
+                        if response[i] == "{":
                             brace_count += 1
-                        elif response[i] == '}':
+                        elif response[i] == "}":
                             brace_count -= 1
                             if brace_count == 0:
-                                json_str = response[start_idx:i+1]
+                                json_str = response[start_idx : i + 1]
                                 break
-                
+
                 if not json_str:
                     # 方法4: 尝试直接解析整个响应
                     json_str = response.strip()
@@ -110,10 +110,10 @@ class ResponseParser:
     def _clean_json_string(self, json_str: str) -> str:
         """
         清理JSON字符串，移除markdown格式
-        
+
         Args:
             json_str: 原始JSON字符串
-            
+
         Returns:
             清理后的JSON字符串
         """
@@ -124,29 +124,25 @@ class ResponseParser:
         return json_str
 
     def _try_fix_json(
-        self, 
-        response: str, 
-        json_str: str, 
-        card_type: str, 
-        card_factory
+        self, response: str, json_str: str, card_type: str, card_factory
     ) -> List[Card]:
         """
         尝试修复JSON解析错误
-        
+
         Args:
             response: 原始响应
             json_str: JSON字符串
             card_type: 卡片类型
             card_factory: 卡片工厂对象
-            
+
         Returns:
             解析后的卡片列表
         """
         cards = []
         try:
             # 尝试修复尾随逗号
-            json_str_fixed = re.sub(r',\s*}', '}', json_str)
-            json_str_fixed = re.sub(r',\s*]', ']', json_str_fixed)
+            json_str_fixed = re.sub(r",\s*}", "}", json_str)
+            json_str_fixed = re.sub(r",\s*]", "]", json_str_fixed)
             data = json.loads(json_str_fixed)
             cards_data = data.get("cards", [])
             for card_data in cards_data:

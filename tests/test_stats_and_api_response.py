@@ -8,8 +8,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from ankigen.core.card_generator import CardGenerator, GenerationStats
+from ankigen.core.card_generator import CardGenerator
 from ankigen.core.exporter import export_api_responses
+from ankigen.core.stats import GenerationStats
 from ankigen.models.card import BasicCard
 from ankigen.models.config import GenerationConfig, LLMConfig, LLMProvider
 
@@ -97,7 +98,7 @@ class TestAPIResponseExport:
 class TestCardGeneratorStats:
     """测试卡片生成器的统计功能"""
 
-    @pytest.fixture
+    @pytest.fixture()
     def llm_config(self):
         """创建LLM配置"""
         return LLMConfig(
@@ -106,12 +107,12 @@ class TestCardGeneratorStats:
             api_key="test_key",
         )
 
-    @pytest.fixture
+    @pytest.fixture()
     def generator(self, llm_config):
         """创建卡片生成器"""
         return CardGenerator(llm_config)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate_cards_returns_stats(self, generator):
         """测试生成卡片返回统计信息"""
         mock_response = json.dumps(
@@ -154,7 +155,7 @@ class TestCardGeneratorStats:
             assert stats.total_time > 0
             assert len(stats.api_responses) > 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_stats_display(self, generator, capsys):
         """测试统计信息显示"""
         mock_response = json.dumps({"cards": [{"front": "问题", "back": "答案"}]})
@@ -162,9 +163,7 @@ class TestCardGeneratorStats:
         async def mock_stream_generate_func(prompt, system_prompt=None):
             yield (mock_response, 50)
 
-        with patch.object(
-            generator.llm_engine, "generate", new_callable=AsyncMock
-        ), patch.object(
+        with patch.object(generator.llm_engine, "generate", new_callable=AsyncMock), patch.object(
             generator.llm_engine, "stream_generate", side_effect=mock_stream_generate_func
         ):
             config = GenerationConfig(card_type="basic", card_count=1)

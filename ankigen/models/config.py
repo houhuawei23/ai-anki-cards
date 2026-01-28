@@ -34,17 +34,11 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
     max_tokens: int = Field(default=2000, ge=1, description="最大token数")
     top_p: float = Field(default=1.0, ge=0.0, le=1.0, description="Top-p采样参数")
-    presence_penalty: float = Field(
-        default=0.0, ge=-2.0, le=2.0, description="存在惩罚参数"
-    )
-    frequency_penalty: float = Field(
-        default=0.0, ge=-2.0, le=2.0, description="频率惩罚参数"
-    )
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="存在惩罚参数")
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="频率惩罚参数")
     timeout: int = Field(default=60, ge=1, description="请求超时时间（秒）")
     max_retries: int = Field(default=3, ge=0, description="最大重试次数")
-    api_keys: List[str] = Field(
-        default_factory=list, description="多个API密钥（用于轮询）"
-    )
+    api_keys: List[str] = Field(default_factory=list, description="多个API密钥（用于轮询）")
 
     @field_validator("api_key", mode="before")
     @classmethod
@@ -88,16 +82,10 @@ class GenerationConfig(BaseModel):
     card_count: Optional[int] = Field(default=None, ge=1, description="卡片数量")
     difficulty: str = Field(default="medium", description="难度级别")
     chunk_size: int = Field(default=500, ge=1, description="内容分块大小（字符数）")
-    max_tokens_per_chunk: int = Field(
-        default=1000, ge=1, description="每个分块的最大token数"
-    )
+    max_tokens_per_chunk: int = Field(default=1000, ge=1, description="每个分块的最大token数")
     custom_prompt: Optional[str] = Field(default=None, description="自定义提示词")
-    enable_deduplication: bool = Field(
-        default=True, description="是否启用去重"
-    )
-    enable_quality_filter: bool = Field(
-        default=True, description="是否启用质量过滤"
-    )
+    enable_deduplication: bool = Field(default=True, description="是否启用去重")
+    enable_quality_filter: bool = Field(default=True, description="是否启用质量过滤")
     max_cards_per_request: int = Field(
         default=20, ge=1, description="单次API请求最多生成的卡片数量"
     )
@@ -181,9 +169,7 @@ class AppConfig(BaseModel):
     """
 
     llm: LLMConfig = Field(default_factory=LLMConfig, description="LLM配置")
-    generation: GenerationConfig = Field(
-        default_factory=GenerationConfig, description="生成配置"
-    )
+    generation: GenerationConfig = Field(default_factory=GenerationConfig, description="生成配置")
     export: ExportConfig = Field(default_factory=ExportConfig, description="导出配置")
 
     @classmethod

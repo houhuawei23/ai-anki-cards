@@ -23,6 +23,12 @@ from ankigen.core.card_generator import CardGenerator
 from ankigen.core.card_reader import detect_format, read_cards
 from ankigen.core.config_loader import load_config, save_config
 from ankigen.core.exporter import export_api_responses, export_cards
+from ankigen.exceptions import (
+    CardGenerationError,
+    ConfigurationError,
+    ExportError,
+    ParsingError,
+)
 from ankigen.models.card import CardType
 from ankigen.models.config import AppConfig
 from ankigen.utils.cache import FileCache
@@ -203,10 +209,13 @@ def generate(
         typer.echo("\n正在生成卡片...")
         try:
             result = asyncio.run(
-                card_generator.generate_cards(
-                    content, app_config.generation, output_dir
-                )
+                card_generator.generate_cards(content, app_config.generation, output_dir)
             )
+        except CardGenerationError as e:
+            logger.error(f"卡片生成错误: {e}")
+            typer.echo(f"错误: 卡片生成失败: {e}", err=True)
+            typer.echo("请检查日志以获取更多信息", err=True)
+            raise typer.Exit(1)
         except Exception as e:
             logger.error(f"生成卡片时发生错误: {e}")
             import traceback
@@ -245,9 +254,7 @@ def generate(
         if not cards:
             typer.echo("警告: 未能生成任何卡片", err=True)
             if stats and stats.api_responses:
-                typer.echo(
-                    "已保存 API 响应到输出目录，请检查以分析问题", err=True
-                )
+                typer.echo("已保存 API 响应到输出目录，请检查以分析问题", err=True)
                 # 尝试导出 API 响应
                 try:
                     api_output_file = output_dir / "api_response_debug.json"
@@ -286,6 +293,13 @@ def generate(
     except typer.Exit:
         # 重新抛出 typer.Exit，不要捕获
         raise
+    except (CardGenerationError, ConfigurationError, ParsingError, ExportError) as e:
+        logger.exception(f"{type(e).__name__}: {e}")
+        typer.echo(f"错误: {e}", err=True)
+        typer.echo("请查看日志文件以获取详细错误信息", err=True)
+        if log_file_path:
+            typer.echo(f"日志文件位置: {log_file_path}", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         logger.exception("生成卡片失败")
         import traceback
@@ -332,25 +346,19 @@ def config(
     elif show:
         # 显示当前配置
         try:
-            app_config = load_config(
-                config_path=config_path if config_path.exists() else None
-            )
+            app_config = load_config(config_path=config_path if config_path.exists() else None)
             typer.echo("\n=== 当前配置 ===")
             typer.echo("\nLLM配置:")
             typer.echo(f"  提供商: {app_config.llm.provider}")
             typer.echo(f"  模型: {app_config.llm.model_name}")
-            typer.echo(
-                f"  API密钥: {'已设置' if app_config.llm.get_api_key() else '未设置'}"
-            )
+            typer.echo(f"  API密钥: {'已设置' if app_config.llm.get_api_key() else '未设置'}")
             typer.echo(f"  基础URL: {app_config.llm.base_url or '默认'}")
             typer.echo(f"  温度: {app_config.llm.temperature}")
             typer.echo(f"  最大Token: {app_config.llm.max_tokens}")
 
             typer.echo("\n生成配置:")
             typer.echo(f"  卡片类型: {app_config.generation.card_type}")
-            typer.echo(
-                f"  卡片数量: {app_config.generation.card_count or '自动'}"
-            )
+            typer.echo(f"  卡片数量: {app_config.generation.card_count or '自动'}")
             typer.echo(f"  难度: {app_config.generation.difficulty}")
 
             typer.echo("\n导出配置:")
@@ -444,9 +452,7 @@ def convert(
             try:
                 card_type_enum = CardType(card_type.lower())
             except ValueError:
-                typer.echo(
-                    f"警告: 无效的卡片类型 '{card_type}'，将自动判定", err=True
-                )
+                typer.echo(f"警告: 无效的卡片类型 '{card_type}'，将自动判定", err=True)
 
         # 读取卡片
         typer.echo(f"\n正在读取 {input}...")

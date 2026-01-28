@@ -17,6 +17,6 @@ if _cli_file_path.exists():
     generate = _cli_module.generate
     config = _cli_module.config
     convert = _cli_module.convert
-    __all__ = ["app", "generate", "config", "convert"]
+    __all__ = ["app", "config", "convert", "generate"]
 else:
     __all__ = []

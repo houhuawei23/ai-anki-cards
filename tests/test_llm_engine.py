@@ -18,7 +18,7 @@ from ankigen.models.config import LLMConfig, LLMProvider
 class TestOpenAIProvider:
     """OpenAI提供商测试"""
 
-    @pytest.fixture
+    @pytest.fixture()
     def config(self):
         """创建配置"""
         return LLMConfig(
@@ -27,14 +27,12 @@ class TestOpenAIProvider:
             api_key="test_key",
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate(self, config):
         """测试生成文本（mock）"""
         provider = OpenAIProvider(config)
 
-        mock_response = {
-            "choices": [{"message": {"content": "生成的文本"}}]
-        }
+        mock_response = {"choices": [{"message": {"content": "生成的文本"}}]}
 
         # Mock响应对象（异步上下文管理器）
         mock_response_obj = MagicMock()
@@ -45,7 +43,7 @@ class TestOpenAIProvider:
 
         # Mock post方法，返回异步上下文管理器
         mock_post = MagicMock(return_value=mock_response_obj)
-        
+
         # Mock session（异步上下文管理器）
         mock_session = MagicMock()
         mock_session.post = mock_post
@@ -60,7 +58,7 @@ class TestOpenAIProvider:
 class TestDeepSeekProvider:
     """DeepSeek提供商测试"""
 
-    @pytest.fixture
+    @pytest.fixture()
     def config(self):
         """创建配置"""
         return LLMConfig(
@@ -69,14 +67,12 @@ class TestDeepSeekProvider:
             api_key="test_key",
         )
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate(self, config):
         """测试生成文本（mock）"""
         provider = DeepSeekProvider(config)
 
-        mock_response = {
-            "choices": [{"message": {"content": "生成的文本"}}]
-        }
+        mock_response = {"choices": [{"message": {"content": "生成的文本"}}]}
 
         # Mock响应对象（异步上下文管理器）
         mock_response_obj = MagicMock()
@@ -87,7 +83,7 @@ class TestDeepSeekProvider:
 
         # Mock post方法，返回异步上下文管理器
         mock_post = MagicMock(return_value=mock_response_obj)
-        
+
         # Mock session（异步上下文管理器）
         mock_session = MagicMock()
         mock_session.post = mock_post
@@ -102,7 +98,7 @@ class TestDeepSeekProvider:
 class TestLLMEngine:
     """LLM引擎测试"""
 
-    @pytest.fixture
+    @pytest.fixture()
     def config(self):
         """创建配置"""
         return LLMConfig(
@@ -116,7 +112,7 @@ class TestLLMEngine:
         engine = LLMEngine(config)
         assert engine.provider is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_generate(self, config):
         """测试生成文本（mock）"""
         engine = LLMEngine(config)

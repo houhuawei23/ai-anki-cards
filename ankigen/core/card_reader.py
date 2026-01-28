@@ -4,6 +4,7 @@
 支持从各种格式读取卡片：yml, txt, with_type.txt, csv, apkg
 """
 
+import contextlib
 import csv
 import re
 from pathlib import Path
@@ -13,7 +14,6 @@ import yaml
 from loguru import logger
 
 from ankigen.core.field_mapper import map_fields_to_card
-from ankigen.core.template_loader import get_template_meta
 from ankigen.models.card import Card, CardType
 
 
@@ -94,7 +94,7 @@ def read_items_yml(file_path: Path, card_type: Optional[CardType] = None) -> Lis
     """
     cards = []
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # 使用YAML解析器分割多个文档
@@ -147,12 +147,11 @@ def read_items_txt(file_path: Path, card_type: Optional[CardType] = None) -> Lis
     """
     cards = []
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     # 解析文件头
     columns = []
-    guid_column = 1
     tags_column = None
     separator = "\t"
 
@@ -161,19 +160,13 @@ def read_items_txt(file_path: Path, card_type: Optional[CardType] = None) -> Lis
         if line.startswith("#separator:"):
             sep_str = line.split(":", 1)[1].strip()
             # 处理 "tab" 字符串
-            if sep_str.lower() == "tab":
-                separator = "\t"
-            else:
-                separator = sep_str
+            separator = "\t" if sep_str.lower() == "tab" else sep_str
         elif line.startswith("#columns:"):
             col_str = line.split(":", 1)[1].strip()
             # 处理制表符分隔的列名
-            if "\t" in col_str:
-                columns = col_str.split("\t")
-            else:
-                columns = col_str.split(separator)
+            columns = col_str.split("\t") if "\t" in col_str else col_str.split(separator)
         elif line.startswith("#guid column:"):
-            guid_column = int(line.split(":", 1)[1].strip())
+            int(line.split(":", 1)[1].strip())
         elif line.startswith("#tags column:"):
             tags_column = int(line.split(":", 1)[1].strip())
         elif line and not line.startswith("#"):
@@ -189,8 +182,7 @@ def read_items_txt(file_path: Path, card_type: Optional[CardType] = None) -> Lis
                     fields[col] = values[i]
 
             # 移除GUID列（如果存在）
-            if "GUID" in fields:
-                del fields["GUID"]
+            fields.pop("GUID", None)
 
             # 处理Tags字段
             tags = []
@@ -227,12 +219,11 @@ def read_items_with_type_txt(file_path: Path) -> List[Card]:
     """
     cards = []
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     # 解析文件头
     columns = []
-    guid_column = 1
     notetype_column = None
     tags_column = None
     separator = "\t"
@@ -242,19 +233,13 @@ def read_items_with_type_txt(file_path: Path) -> List[Card]:
         if line.startswith("#separator:"):
             sep_str = line.split(":", 1)[1].strip()
             # 处理 "tab" 字符串
-            if sep_str.lower() == "tab":
-                separator = "\t"
-            else:
-                separator = sep_str
+            separator = "\t" if sep_str.lower() == "tab" else sep_str
         elif line.startswith("#columns:"):
             col_str = line.split(":", 1)[1].strip()
             # 处理制表符分隔的列名
-            if "\t" in col_str:
-                columns = col_str.split("\t")
-            else:
-                columns = col_str.split(separator)
+            columns = col_str.split("\t") if "\t" in col_str else col_str.split(separator)
         elif line.startswith("#guid column:"):
-            guid_column = int(line.split(":", 1)[1].strip())
+            int(line.split(":", 1)[1].strip())
         elif line.startswith("#notetype column:"):
             notetype_column = int(line.split(":", 1)[1].strip())
         elif line.startswith("#tags column:"):
@@ -288,10 +273,8 @@ def read_items_with_type_txt(file_path: Path) -> List[Card]:
             # 确定卡片类型
             card_type = None
             if card_type_str:
-                try:
+                with contextlib.suppress(ValueError):
                     card_type = CardType(card_type_str)
-                except ValueError:
-                    pass
 
             if not card_type:
                 card_type = infer_card_type_from_fields(fields)
@@ -320,12 +303,12 @@ def read_csv(file_path: Path, card_type: Optional[CardType] = None) -> List[Card
     """
     cards = []
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             # 处理Tags字段（可能是分号或逗号分隔）
             tags = []
-            if "Tags" in row and row["Tags"]:
+            if row.get("Tags"):
                 tags_str = row["Tags"]
                 if ";" in tags_str:
                     tags = [t.strip() for t in tags_str.split(";")]
@@ -340,10 +323,8 @@ def read_csv(file_path: Path, card_type: Optional[CardType] = None) -> List[Card
             # 推断卡片类型
             inferred_type = card_type
             if not inferred_type and "Type" in row:
-                try:
+                with contextlib.suppress(ValueError):
                     inferred_type = CardType(row["Type"].lower())
-                except ValueError:
-                    pass
 
             if not inferred_type:
                 inferred_type = infer_card_type_from_fields(fields)
@@ -391,7 +372,7 @@ def infer_card_type_from_fields(fields: dict) -> Optional[CardType]:
             return CardType.CLOZE
 
     # 检查字段名称
-    field_names = [k.lower() for k in fields.keys()]
+    field_names = [k.lower() for k in fields]
 
     if "text" in field_names:
         return CardType.CLOZE
