@@ -338,8 +338,23 @@ class CardGenerator:
             last_token_count = 0
             last_display_time = time.time()
 
+            # 显示连接提示
+            async with self._stdout_lock:
+                sys.stdout.write(f"\r{task_prefix}正在连接 API...")
+                sys.stdout.flush()
+
             try:
+                stream_start_time = time.time()
+                first_chunk_received = False
                 async for chunk, token_count in self.llm_engine.stream_generate(prompt):
+                    # 收到第一个chunk时显示提示
+                    if not first_chunk_received:
+                        first_chunk_time = time.time()
+                        first_chunk_received = True
+                        elapsed = int(first_chunk_time - stream_start_time)
+                        async with self._stdout_lock:
+                            sys.stdout.write(f"\r{task_prefix}已开始接收响应 (等待 {elapsed}秒)...")
+                            sys.stdout.flush()
                     response_parts.append(chunk)
                     # 每增加10个token或每0.5秒更新一次显示
                     current_time = time.time()

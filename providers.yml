@@ -19,6 +19,3 @@ providers:
           output: 3 # ￥/百万
         functions:
           json_output: true
-  kimi:
-    base_url: "https://api.moonshot.cn/v1"
-    api_key: "${KIMI_API_KEY}"

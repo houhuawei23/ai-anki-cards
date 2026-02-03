@@ -375,6 +375,18 @@ def config(
 
 
 @app.command()
+def inter():
+    """
+    交互式命令模式
+
+    进入交互式界面，引导用户选择命令并输入参数。
+    """
+    from ankigen.cli.interactive import interactive_mode
+
+    interactive_mode()
+
+
+@app.command()
 def convert(
     input: Path = typer.Option(
         ...,

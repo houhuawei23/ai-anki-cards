@@ -15,17 +15,38 @@
 
 ## 安装
 
-### 使用pip安装
+### 方式一：安装为可执行命令（推荐）
 
+安装后可在任意目录直接使用 `ankigen` 命令：
+
+```bash
+# 从项目目录安装
+cd /path/to/ai-anki-cards
+pip install -e .
+
+# 或直接安装（无需克隆仓库）
+pip install git+https://github.com/your-repo/ai-anki-cards.git
+```
+
+安装完成后，在任意目录都可以直接使用：
+```bash
+ankigen generate -i ./question_bank.md -o output/ -t cloze
+```
+
+### 方式二：开发模式安装
+
+```bash
+cd /path/to/ai-anki-cards
+pip install -e .
+```
+
+### 方式三：仅安装依赖（不推荐）
+
+如果只想安装依赖而不安装命令：
 ```bash
 pip install -r requirements.txt
 ```
-
-### 开发模式安装
-
-```bash
-pip install -e .
-```
+然后需要使用 `python -m ankigen` 或 wrapper 脚本。
 
 ## 快速开始
 

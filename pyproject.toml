@@ -48,6 +48,8 @@ dependencies = [
     "litellm>=1.0.0",
     "openai>=1.0.0",
     "llm-api-engine>=0.1.2",     # 使用 llm-api-engine 作为 LLM 引擎
+    "questionary>=2.0.0",         # 交互式CLI库
+    "rich>=13.0.0",               # 美化输出
 ]
 
 [project.optional-dependencies]
